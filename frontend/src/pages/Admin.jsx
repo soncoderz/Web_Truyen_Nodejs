@@ -11,6 +11,7 @@ import {
   updateReportStatus, uploadImage, uploadMangaPages
 } from '../services/api';
 import api from '../services/api';
+import { toast, toastFromError } from '../services/toast';
 import Statistics from './Statistics';
 
 function getApprovedStoriesByUploader(stories) {
@@ -23,7 +24,7 @@ function getApprovedStoriesByUploader(stories) {
       if (!groups.has(groupKey)) {
         groups.set(groupKey, {
           uploaderId: story.uploaderId,
-          uploaderUsername: story.uploaderUsername || 'Nguoi dung',
+          uploaderUsername: story.uploaderUsername || 'Người dùng',
           stories: [],
         });
       }
@@ -112,6 +113,14 @@ export default function Admin() {
     loadData();
   }, [user, authLoading]);
 
+  const notifyApiError = (error, fallbackMessage = 'Không thực hiện được thao tác này.') => {
+    toastFromError(error, fallbackMessage);
+  };
+
+  const notifySuccess = (message) => {
+    toast.success(message);
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -122,7 +131,10 @@ export default function Admin() {
       setStats(statsRes.data); setStories(storiesRes.data); setCategories(catsRes.data);
       setAuthors(authorsRes.data); setReports(reportsRes.data);
       setPendingStories(pendingStoriesRes.data); setPendingChapters(pendingChaptersRes.data);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      notifyApiError(e, 'Không tải được dữ liệu quản trị.');
+    }
     setLoading(false);
   };
 
@@ -135,7 +147,9 @@ export default function Admin() {
     try {
       const res = await uploadImage(file);
       setStoryForm(prev => ({ ...prev, coverImage: res.data.url }));
-    } catch (err) { alert('Upload ảnh bìa thất bại: ' + (err.response?.data?.message || err.message)); }
+    } catch (err) {
+      notifyApiError(err, 'Không upload được ảnh bìa.');
+    }
     setCoverUploading(false);
   };
 
@@ -181,7 +195,10 @@ export default function Admin() {
       setShowStoryForm(false); setEditStoryId(null); setCoverPreview('');
       setStoryForm(EMPTY_STORY_FORM);
       loadData();
-    } catch (e) { alert('Lỗi: ' + (e.response?.data?.message || e.message)); }
+      notifySuccess(editStoryId ? 'Đã cập nhật truyện.' : 'Đã tạo truyện mới.');
+    } catch (e) {
+      notifyApiError(e, 'Không lưu được truyện.');
+    }
   };
   const handleEditStory = (s) => {
     setStoryForm({
@@ -195,7 +212,16 @@ export default function Admin() {
     setCoverPreview(s.coverImage || '');
     setEditStoryId(s.id); setShowStoryForm(true);
   };
-  const handleDeleteStory = async (id) => { if (confirm('Xóa truyện?')) { await deleteStory(id); loadData(); } };
+  const handleDeleteStory = async (id) => {
+    if (!confirm('Xóa truyện?')) return;
+    try {
+      await deleteStory(id);
+      loadData();
+      notifySuccess('Đã xóa truyện.');
+    } catch (e) {
+      notifyApiError(e, 'Không xóa được truyện.');
+    }
+  };
 
   // ===== CATEGORY =====
   const handleSaveCategory = async () => {
@@ -204,9 +230,21 @@ export default function Admin() {
       else await createCategory(categoryForm);
       setShowCategoryForm(false); setEditCategoryId(null);
       setCategoryForm({ name: '', description: '' }); loadData();
-    } catch (e) { alert('Lỗi: ' + (e.response?.data?.message || e.message)); }
+      notifySuccess(editCategoryId ? 'Đã cập nhật thể loại.' : 'Đã tạo thể loại mới.');
+    } catch (e) {
+      notifyApiError(e, 'Không lưu được thể loại.');
+    }
   };
-  const handleDeleteCategory = async (id) => { if (confirm('Xóa?')) { await deleteCategory(id); loadData(); } };
+  const handleDeleteCategory = async (id) => {
+    if (!confirm('Xóa?')) return;
+    try {
+      await deleteCategory(id);
+      loadData();
+      notifySuccess('Đã xóa thể loại.');
+    } catch (e) {
+      notifyApiError(e, 'Không xóa được thể loại.');
+    }
+  };
 
   // ===== AUTHOR =====
   const handleSaveAuthor = async () => {
@@ -215,9 +253,21 @@ export default function Admin() {
       else await api.post('/authors', authorForm);
       setShowAuthorForm(false); setEditAuthorId(null);
       setAuthorForm({ name: '', description: '' }); loadData();
-    } catch (e) { alert('Lỗi: ' + (e.response?.data?.message || e.message)); }
+      notifySuccess(editAuthorId ? 'Đã cập nhật tác giả.' : 'Đã tạo tác giả mới.');
+    } catch (e) {
+      notifyApiError(e, 'Không lưu được tác giả.');
+    }
   };
-  const handleDeleteAuthor = async (id) => { if (confirm('Xóa?')) { await api.delete(`/authors/${id}`); loadData(); } };
+  const handleDeleteAuthor = async (id) => {
+    if (!confirm('Xóa?')) return;
+    try {
+      await api.delete(`/authors/${id}`);
+      loadData();
+      notifySuccess('Đã xóa tác giả.');
+    } catch (e) {
+      notifyApiError(e, 'Không xóa được tác giả.');
+    }
+  };
 
   // ===== CHAPTER =====
   const handleLoadChapters = async (storyId) => {
@@ -242,10 +292,20 @@ export default function Admin() {
       setMangaFiles([]); setMangaPreviews([]); setUploadProgress('');
       if (selectedStoryId) handleLoadChapters(selectedStoryId);
       loadData();
-    } catch (e) { alert('Lỗi: ' + (e.response?.data?.message || e.message)); }
+      notifySuccess(editChapterId ? 'Đã cập nhật chương.' : 'Đã tạo chương mới.');
+    } catch (e) {
+      notifyApiError(e, 'Không lưu được chương.');
+    }
   };
   const handleDeleteChapter = async (id) => {
-    if (confirm('Xóa?')) { await deleteChapter(id); if (selectedStoryId) handleLoadChapters(selectedStoryId); }
+    if (!confirm('Xóa?')) return;
+    try {
+      await deleteChapter(id);
+      if (selectedStoryId) handleLoadChapters(selectedStoryId);
+      notifySuccess('Đã xóa chương.');
+    } catch (e) {
+      notifyApiError(e, 'Không xóa được chương.');
+    }
   };
 
   const handleRemovePage = (idx) => {
@@ -254,17 +314,39 @@ export default function Admin() {
 
   // ===== MODERATION =====
   const handleReviewStory = async (id, approvalStatus) => {
-    await reviewStory(id, approvalStatus);
-    loadData();
+    try {
+      await reviewStory(id, approvalStatus);
+      loadData();
+      notifySuccess(
+        approvalStatus === 'APPROVED' ? 'Đã duyệt truyện.' : 'Đã từ chối truyện.',
+      );
+    } catch (e) {
+      notifyApiError(e, 'Không cập nhật được trạng thái duyệt truyện.');
+    }
   };
 
   const handleReviewChapter = async (id, approvalStatus) => {
-    await reviewChapter(id, approvalStatus);
-    loadData();
+    try {
+      await reviewChapter(id, approvalStatus);
+      loadData();
+      notifySuccess(
+        approvalStatus === 'APPROVED' ? 'Đã duyệt chương.' : 'Đã từ chối chương.',
+      );
+    } catch (e) {
+      notifyApiError(e, 'Không cập nhật được trạng thái duyệt chương.');
+    }
   };
 
   // ===== REPORTS =====
-  const handleReportStatus = async (id, status) => { await updateReportStatus(id, status); loadData(); };
+  const handleReportStatus = async (id, status) => {
+    try {
+      await updateReportStatus(id, status);
+      loadData();
+      notifySuccess(status === 'RESOLVED' ? 'Đã xử lý báo lỗi.' : 'Đã bỏ qua báo lỗi.');
+    } catch (e) {
+      notifyApiError(e, 'Không cập nhật được trạng thái báo lỗi.');
+    }
+  };
 
   const approvedStoryGroups = getApprovedStoriesByUploader(stories);
 
@@ -291,8 +373,8 @@ export default function Admin() {
 
       {tab === 'dashboard' && (
         <div className="stats-grid">
-          <div className="stat-card"><div className="stat-value">{stats.pendingStories || 0}</div><div className="stat-label">Truyen cho duyet</div></div>
-          <div className="stat-card"><div className="stat-value">{stats.pendingChapters || 0}</div><div className="stat-label">Chuong cho duyet</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.pendingStories || 0}</div><div className="stat-label">Truyện chờ duyệt</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.pendingChapters || 0}</div><div className="stat-label">Chương chờ duyệt</div></div>
           <div className="stat-card"><div className="stat-value">{stats.totalStories || 0}</div><div className="stat-label">Truyện</div></div>
           <div className="stat-card"><div className="stat-value">{stats.totalUsers || 0}</div><div className="stat-label">Người dùng</div></div>
           <div className="stat-card"><div className="stat-value">{stats.totalChapters || 0}</div><div className="stat-label">Chương</div></div>
@@ -431,13 +513,13 @@ export default function Admin() {
                 </td>
                 <td><span style={{ padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700,
                   background: s.type === 'MANGA' ? 'var(--badge-manga-bg)' : 'var(--badge-novel-bg)',
-                  color: s.type === 'MANGA' ? '#ffb347' : '#6c63ff'
+                  color: s.type === 'MANGA' ? 'var(--warning)' : 'var(--accent)'
                 }}>{s.type === 'MANGA' ? '🎨 Manga' : '📝 Novel'}</span></td>
                 <td><div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                   <span className={`status-badge status-${s.status}`}>{s.status}</span>
                   <span className={`status-badge status-${s.approvalStatus || 'APPROVED'}`}>{s.approvalStatus || 'APPROVED'}</span>
                   {s.licensed && (
-                    <span className="status-badge" style={{ background: 'rgba(245, 158, 11, 0.16)', color: 'var(--warning)' }}>
+                    <span className="status-badge" style={{ background: 'var(--warning-bg)', color: 'var(--warning)' }}>
                       Tính phí · {(s.unlockPrice || 0).toLocaleString('vi-VN')} VND
                     </span>
                   )}
@@ -631,7 +713,7 @@ export default function Admin() {
             <div className="form-group"><label>Thể loại</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                 {categories.map(c => (
-                  <label key={c.id} style={{ padding: '0.3rem 0.6rem', background: storyForm.categoryIds.includes(c.id) ? 'var(--accent)' : 'var(--bg-glass)', borderRadius: '16px', cursor: 'pointer', fontSize: '0.8rem', color: 'white' }}>
+                  <label key={c.id} style={{ padding: '0.3rem 0.6rem', background: storyForm.categoryIds.includes(c.id) ? 'var(--accent)' : 'var(--bg-glass)', borderRadius: '16px', cursor: 'pointer', fontSize: '0.8rem', color: storyForm.categoryIds.includes(c.id) ? 'var(--text-inverse)' : 'var(--text-primary)' }}>
                     <input type="checkbox" checked={storyForm.categoryIds.includes(c.id)} onChange={e => {
                       const ids = e.target.checked ? [...storyForm.categoryIds, c.id] : storyForm.categoryIds.filter(x => x !== c.id);
                       setStoryForm({ ...storyForm, categoryIds: ids });
@@ -642,7 +724,7 @@ export default function Admin() {
             <div className="form-group"><label>Tác giả</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                 {authors.map(a => (
-                  <label key={a.id} style={{ padding: '0.3rem 0.6rem', background: storyForm.authorIds.includes(a.id) ? 'var(--success)' : 'var(--bg-glass)', borderRadius: '16px', cursor: 'pointer', fontSize: '0.8rem', color: 'white' }}>
+                  <label key={a.id} style={{ padding: '0.3rem 0.6rem', background: storyForm.authorIds.includes(a.id) ? 'var(--success)' : 'var(--bg-glass)', borderRadius: '16px', cursor: 'pointer', fontSize: '0.8rem', color: storyForm.authorIds.includes(a.id) ? 'var(--text-inverse)' : 'var(--text-primary)' }}>
                     <input type="checkbox" checked={storyForm.authorIds.includes(a.id)} onChange={e => {
                       const ids = e.target.checked ? [...storyForm.authorIds, a.id] : storyForm.authorIds.filter(x => x !== a.id);
                       setStoryForm({ ...storyForm, authorIds: ids });
@@ -703,7 +785,7 @@ export default function Admin() {
               <span style={{
                 marginLeft: '0.5rem', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.7rem',
                 background: getSelectedStoryType() === 'MANGA' ? 'var(--badge-manga-bg)' : 'var(--badge-novel-bg)',
-                color: getSelectedStoryType() === 'MANGA' ? '#ffb347' : '#6c63ff'
+                color: getSelectedStoryType() === 'MANGA' ? 'var(--warning)' : 'var(--accent)'
               }}>{getSelectedStoryType() === 'MANGA' ? '🎨 Manga' : '📝 Novel'}</span>
             </h2>
             <div className="form-group"><label>Số chương</label>
@@ -758,7 +840,7 @@ export default function Admin() {
                           <img src={url} alt={`Page ${idx + 1}`}
                             style={{ width: '70px', height: '90px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border)' }} />
                           <button onClick={() => handleRemovePage(idx)}
-                            style={{ position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', borderRadius: '50%', background: 'var(--danger)', color: 'white', border: 'none', fontSize: '0.7rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                            style={{ position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', borderRadius: '50%', background: 'var(--danger)', color: 'var(--text-inverse)', border: 'none', fontSize: '0.7rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                           <div style={{ textAlign: 'center', fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Trang {idx + 1}</div>
                         </div>
                       ))}

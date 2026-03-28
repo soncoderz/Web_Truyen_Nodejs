@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   getCategories,
   getChaptersByStory,
@@ -10,14 +10,13 @@ import {
   getHotStories as getStoriesHotTop10,
 } from "../services/api";
 import { useAuth } from "../context/AuthContext";
-import BookmarkIcon from "../components/BookmarkIcon";
-import useBookmarks, { getBookmarkLocation } from "../hooks/useBookmarks";
+import HeartIcon from "../components/HeartIcon";
+import useFollowedStories from "../hooks/useFollowedStories";
 import { getReadChapters } from "../utils/readingStorage";
 
 export default function Home() {
-  const navigate = useNavigate();
   const { user } = useAuth();
-  const { getStoryBookmark } = useBookmarks(user);
+  const { isFollowingStory, isProcessing, toggleFollow } = useFollowedStories(user);
   const [trending, setTrending] = useState([]);
   const [newReleases, setNewReleases] = useState([]);
   const [licensedStories, setLicensedStories] = useState([]);
@@ -52,7 +51,13 @@ export default function Home() {
         setHotTop10(hotRes.data);
 
         const allVisibleStories = [...tStories, ...nStories, ...lStories, ...rStories];
-        const uniqueIds = [...new Set(allVisibleStories.map((s) => s.id))];
+        const uniqueIds = [
+          ...new Set(
+            allVisibleStories
+              .map((s) => s?.id || s?._id)
+              .filter(Boolean),
+          ),
+        ];
 
         // Prefetch latest chapters for visible stories
         Promise.all(
@@ -80,32 +85,25 @@ export default function Home() {
     return (
       <div className="loading">
         <div className="spinner" />
-        Dang tai...
+        Đang tải...
       </div>
     );
 
   const handleStoryBookmark = (storyId) => {
     if (!user) {
-      alert("Vui long dang nhap!");
+      alert("Vui lòng đăng nhập!");
       return;
     }
 
-    const bookmark = getStoryBookmark(storyId);
-    if (!bookmark?.chapterId) {
-      alert("Bookmark duoc dat trong luc doc chuong.");
-      return;
-    }
-
-    const { pageIndex, paragraphIndex } = getBookmarkLocation(bookmark);
-    const params = new URLSearchParams();
-    if (typeof pageIndex === "number") {
-      params.set("page", String(pageIndex + 1));
-    }
-    if (typeof paragraphIndex === "number") {
-      params.set("paragraph", String(paragraphIndex + 1));
-    }
-    const suffix = params.toString() ? `?${params.toString()}` : "";
-    navigate(`/story/${bookmark.storyId}/chapter/${bookmark.chapterId}${suffix}`);
+    toggleFollow(storyId)
+      .then((result) => {
+        if (result.requiresAuth) {
+          alert("Vui lòng đăng nhập để theo dõi truyện.");
+        }
+      })
+      .catch(() => {
+        alert("Không cập nhật được trạng thái theo dõi.");
+      });
   };
 
   return (
@@ -138,7 +136,7 @@ export default function Home() {
             margin: "0 auto 1.5rem",
           }}
         >
-          Truyen tranh & Light Novel — Doc mien phi, moi luc moi noi.
+          Truyện tranh & Light Novel — Đọc miễn phí, mọi lúc mọi nơi.
         </p>
         <div
           style={{
@@ -153,7 +151,7 @@ export default function Home() {
             className="btn btn-primary"
             style={{ fontSize: "1rem", padding: "0.75rem 2rem" }}
           >
-            🎨 Truyen Tranh
+            🎨 Truyện Tranh
           </Link>
           <Link
             to="/stories?type=NOVEL"
@@ -168,7 +166,7 @@ export default function Home() {
       {/* Categories */}
       {categories.length > 0 && (
         <div style={{ marginBottom: "2.5rem" }}>
-          <h2 className="section-title">📁 The loai</h2>
+          <h2 className="section-title">📁 Thể loại</h2>
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
             {categories.map((c) => (
               <Link
@@ -187,14 +185,15 @@ export default function Home() {
       {/* Recommendations */}
       {recommendations.length > 0 && (
         <div style={{ marginBottom: "2.5rem" }}>
-          <h2 className="section-title">⭐ De xuat hay nhat</h2>
+          <h2 className="section-title">⭐ Đề xuất hay nhất</h2>
           <div className="story-grid">
             {recommendations.map((s) => (
               <StoryCard
                 key={s.id}
                 story={s}
                 chapters={chaptersMap[s.id] || []}
-                bookmarked={Boolean(getStoryBookmark(s.id))}
+                bookmarked={isFollowingStory(s.id)}
+                bookmarkBusy={isProcessing(s.id)}
                 onToggleBookmark={() => handleStoryBookmark(s.id)}
               />
             ))}
@@ -211,9 +210,9 @@ export default function Home() {
               alignItems: "center",
             }}
           >
-            <h2 className="section-title">💳 Truyen tinh phi</h2>
+            <h2 className="section-title">💳 Truyện tính phí</h2>
             <Link to="/stories" style={{ fontSize: "0.85rem" }}>
-              Xem tat ca →
+              Xem tất cả →
             </Link>
           </div>
           <div className="story-grid">
@@ -222,7 +221,8 @@ export default function Home() {
                 key={s.id}
                 story={s}
                 chapters={chaptersMap[s.id] || []}
-                bookmarked={Boolean(getStoryBookmark(s.id))}
+                bookmarked={isFollowingStory(s.id)}
+                bookmarkBusy={isProcessing(s.id)}
                 onToggleBookmark={() => handleStoryBookmark(s.id)}
               />
             ))}
@@ -240,9 +240,9 @@ export default function Home() {
               alignItems: "center",
             }}
           >
-            <h2 className="section-title">🔥 Truyen hot nhat</h2>
+            <h2 className="section-title">🔥 Truyện hot nhất</h2>
             <Link to="/stories?sort=views" style={{ fontSize: "0.85rem" }}>
-              Xem tat ca →
+              Xem tất cả →
             </Link>
           </div>
           <div className="story-grid">
@@ -251,7 +251,8 @@ export default function Home() {
                 key={s.id}
                 story={s}
                 chapters={chaptersMap[s.id] || []}
-                bookmarked={Boolean(getStoryBookmark(s.id))}
+                bookmarked={isFollowingStory(s.id)}
+                bookmarkBusy={isProcessing(s.id)}
                 onToggleBookmark={() => handleStoryBookmark(s.id)}
               />
             ))}
@@ -269,9 +270,9 @@ export default function Home() {
               alignItems: "center",
             }}
           >
-            <h2 className="section-title">🆕 Truyen moi cap nhat</h2>
+            <h2 className="section-title">🆕 Truyện mới cập nhật</h2>
             <Link to="/stories?sort=updatedAt" style={{ fontSize: "0.85rem" }}>
-              Xem tat ca →
+              Xem tất cả →
             </Link>
           </div>
           <div className="story-grid">
@@ -280,7 +281,8 @@ export default function Home() {
                 key={s.id}
                 story={s}
                 chapters={chaptersMap[s.id] || []}
-                bookmarked={Boolean(getStoryBookmark(s.id))}
+                bookmarked={isFollowingStory(s.id)}
+                bookmarkBusy={isProcessing(s.id)}
                 onToggleBookmark={() => handleStoryBookmark(s.id)}
               />
             ))}
@@ -322,7 +324,7 @@ export default function Home() {
               <div className="hot-list-col home-hot-list-col">
                 <div className="hot-list-header">
                   <span className="hot-list-icon">⭐</span>
-                  <h3>Top 10 Rating cao nhất</h3>
+                  <h3>Top 10 đánh giá cao nhất</h3>
                 </div>
                 <div className="hot-list">
                   {(hotTop10.topByRating || []).map((s, i) => (
@@ -346,7 +348,7 @@ export default function Home() {
         licensedStories.length === 0 && (
         <div className="empty-state">
           <div className="icon">📚</div>
-          <p>Chua co truyen nao.</p>
+          <p>Chưa có truyện nào.</p>
         </div>
       )}
     </div>
@@ -354,14 +356,14 @@ export default function Home() {
 }
 
 const HOT_TYPE_STYLES = {
-  MANGA: { bg: "rgba(255, 179, 71, 0.18)", color: "#ffb347" },
-  NOVEL: { bg: "rgba(108, 99, 255, 0.22)", color: "#b8b0ff" },
+  MANGA: { bg: "var(--badge-manga-bg)", color: "var(--warning)" },
+  NOVEL: { bg: "var(--badge-novel-bg)", color: "var(--accent)" },
 };
 
 const HOT_STATUS_STYLES = {
-  ONGOING: { bg: "rgba(82, 199, 234, 0.15)", color: "#52c7ea" },
-  COMPLETED: { bg: "rgba(76, 175, 80, 0.15)", color: "#4caf50" },
-  DROPPED: { bg: "rgba(244, 67, 54, 0.15)", color: "#f44336" },
+  ONGOING: { bg: "var(--success-bg)", color: "var(--success)" },
+  COMPLETED: { bg: "var(--accent-bg)", color: "var(--accent)" },
+  DROPPED: { bg: "var(--danger-bg)", color: "var(--danger)" },
 };
 
 const HOT_STATUS_LABELS = {
@@ -403,13 +405,14 @@ function HomeHotStoryRow({ story, rank, index, variant }) {
     HOT_STATUS_STYLES[story.status] || HOT_STATUS_STYLES.ONGOING;
   const rankBg =
     index === 0
-      ? "#e6c200"
+      ? "var(--rank-1-bg)"
       : index === 1
-        ? "#b8bcc6"
+        ? "var(--rank-2-bg)"
         : index === 2
-          ? "#cd7f32"
-          : "rgba(255,255,255,0.1)";
-  const rankColor = index < 3 ? "#1a1a2e" : "rgba(255,255,255,0.65)";
+          ? "var(--rank-3-bg)"
+          : "var(--rank-default-bg)";
+  const rankColor =
+    index < 3 ? "var(--rank-top-text)" : "var(--rank-default-text)";
 
   return (
     <Link
@@ -478,12 +481,12 @@ function formatTimeAgo(dateStr) {
   const date = new Date(dateStr);
   const diffMs = now - date;
   const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "Vua xong";
-  if (diffMin < 60) return `${diffMin} phut truoc`;
+  if (diffMin < 1) return "Vừa xong";
+  if (diffMin < 60) return `${diffMin} phút trước`;
   const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} gio truoc`;
+  if (diffHour < 24) return `${diffHour} giờ trước`;
   const diffDay = Math.floor(diffHour / 24);
-  if (diffDay < 30) return `${diffDay} ngay truoc`;
+  if (diffDay < 30) return `${diffDay} ngày truoc`;
   return new Date(dateStr).toLocaleDateString("vi-VN");
 }
 
@@ -491,6 +494,7 @@ function StoryCard({
   story,
   chapters,
   bookmarked,
+  bookmarkBusy,
   onToggleBookmark,
 }) {
   const { user } = useAuth();
@@ -501,17 +505,18 @@ function StoryCard({
     <div className="story-card">
       <button
         type="button"
-        className={`story-bookmark-btn ${bookmarked ? "active" : ""}`}
+        className={`story-bookmark-btn story-follow-btn ${bookmarked ? "active" : ""}`}
         aria-pressed={bookmarked}
-        aria-label={bookmarked ? `Mo bookmark ${story.title}` : `Mo reader de dat bookmark cho ${story.title}`}
-        title={bookmarked ? "Mo bookmark" : "Bookmark trong reader"}
+        aria-label={bookmarked ? `Bỏ theo dõi ${story.title}` : `Theo dõi ${story.title}`}
+        title={bookmarked ? "Bỏ theo dõi truyện" : "Theo dõi truyện"}
+        disabled={bookmarkBusy}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
           onToggleBookmark?.();
         }}
       >
-        <BookmarkIcon filled={bookmarked} className="story-bookmark-icon" />
+        <HeartIcon filled={bookmarked} className="story-follow-icon" />
       </button>
       <Link
         to={`/story/${story.id}`}
@@ -554,7 +559,7 @@ function StoryCard({
                   borderRadius: "4px",
                   fontSize: "0.65rem",
                   fontWeight: 700,
-                  background: "rgba(245, 158, 11, 0.15)",
+                  background: "var(--warning-bg)",
                   color: "var(--warning)",
                 }}
               >
@@ -593,7 +598,7 @@ function StoryCard({
           </div>
           <div className="story-actions">
             <Link to={`/story/${story.id}`} className="btn btn-sm btn-primary">
-              Xem chi tiet
+              Xem chi tiết
             </Link>
           </div>
         </div>

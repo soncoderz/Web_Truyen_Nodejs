@@ -1,0 +1,98 @@
+# =========================
+# Node modules
+# =========================
+node_modules/
+**/node_modules/
+
+# =========================
+# Logs
+# =========================
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Build / Dist
+# =========================
+dist/
+build/
+.next/
+out/
+coverage/
+
+# React specific
+frontend/build/
+frontend/.cache/
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# Node cache
+# =========================
+.npm
+.eslintcache
+.cache/
+
+# =========================
+# TypeScript
+# =========================
+*.tsbuildinfo
+
+# =========================
+# Temporary files
+# =========================
+tmp/
+temp/
+
+# =========================
+# Debug
+# =========================
+*.pid
+*.seed
+*.pid.lock
+
+# =========================
+# Database
+# =========================
+*.sqlite
+*.db
+
+# =========================
+# Uploads (nếu có)
+# =========================
+uploads/
+public/uploads/
+
+# =========================
+# Docker
+# =========================
+.dockerignore
+docker-compose.override.yml
+
+# =========================
+# Misc
+# =========================
+*.tgz
+*.zip

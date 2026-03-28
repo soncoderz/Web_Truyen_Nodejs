@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
+import CommentIdentity from '../components/CommentIdentity';
 import { useAuth } from '../context/AuthContext';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
 import {
@@ -9,6 +10,7 @@ import {
   createMomoTopUp, createReport, confirmMomoTopUp, getReadingHistoryByStory,
   getRelatedStories, getWalletSummary, unlockLicensedStory
 } from '../services/api';
+import { toast, toastFromError } from '../services/toast';
 import { calculateStoryCoinPrice } from '../utils/rewards';
 
 const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
@@ -76,14 +78,20 @@ export default function StoryDetail() {
 
         setPaymentMessage(
           response.data?.status === 'COMPLETED'
-            ? 'Nap tien MoMo thanh cong. So du da duoc cap nhat.'
-            : response.data?.message || 'Giao dich MoMo chua thanh cong.',
+            ? 'Nạp tiền MoMo thành công. Số dư đã được cập nhật.'
+            : response.data?.message || 'Giao dịch MoMo chưa thành công.',
         );
+        if (response.data?.status === 'COMPLETED') {
+          toast.success('Đã nạp tiền MoMo thành công.');
+        } else {
+          toast.info(response.data?.message || 'Giao dịch MoMo chưa hoàn tất.');
+        }
         await loadStory();
       } catch (error) {
         if (!cancelled) {
+          toastFromError(error, 'Không xác nhận được giao dịch MoMo.');
           setPaymentMessage(
-            error?.response?.data?.message || 'Khong xac nhan duoc giao dich MoMo.',
+            error?.response?.data?.message || 'Không xác nhận được giao dịch MoMo.',
           );
         }
       } finally {
@@ -179,15 +187,21 @@ export default function StoryDetail() {
       setWalletSummary(null);
       setFollowing(false);
       setUserRating(0);
-      setLoadError('Khong tai duoc truyen nay. Thu tai lai sau.');
+      setLoadError('Không tải được truyện này. Thử tải lại sau.');
     }
     setLoading(false);
   };
 
   const handleFollow = async () => {
     if (!user) return alert('Vui lòng đăng nhập!');
-    const res = await followStory(id);
-    setFollowing(res.data.isFollowing);
+    try {
+      const res = await followStory(id);
+      const nextFollowing = Boolean(res.data?.isFollowing);
+      setFollowing(nextFollowing);
+      toast.success(nextFollowing ? 'Đã theo dõi truyện.' : 'Đã bỏ theo dõi truyện.');
+    } catch (error) {
+      toastFromError(error, 'Không cập nhật được trạng thái theo dõi.');
+    }
   };
 
   const handleBookmark = async () => {
@@ -253,14 +267,15 @@ export default function StoryDetail() {
       });
       const payUrl = response.data?.payUrl;
       if (!payUrl) {
-        throw new Error('Khong tao duoc link thanh toan MoMo.');
+        throw new Error('Không tạo được link thanh toán MoMo.');
       }
 
       window.location.assign(payUrl);
     } catch (error) {
       setPaymentBusy(false);
+      toastFromError(error, 'Không tạo được giao dịch MoMo.');
       setPaymentMessage(
-        error?.response?.data?.message || error.message || 'Khong tao duoc giao dich MoMo.',
+        error?.response?.data?.message || error.message || 'Không tạo được giao dịch MoMo.',
       );
     }
   };
@@ -274,15 +289,21 @@ export default function StoryDetail() {
     try {
       setPaymentBusy(true);
       await unlockLicensedStory(id, paymentMethod);
+      toast.success(
+        paymentMethod === 'COINS'
+          ? 'Đã mở khóa premium bằng xu.'
+          : 'Đã mua truyện thành công.',
+      );
       setPaymentMessage(
         paymentMethod === 'COINS'
-          ? 'Da mo khoa premium bang xu.'
-          : 'Da mua truyen thanh cong.',
+          ? 'Đã mở khóa premium bằng xu.'
+          : 'Đã mua truyện thành công.',
       );
       await loadStory();
     } catch (error) {
+      toastFromError(error, 'Không mở khóa được nội dung này.');
       setPaymentMessage(
-        error?.response?.data?.message || 'Khong mo khoa duoc noi dung nay.',
+        error?.response?.data?.message || 'Không mở khóa được nội dung này.',
       );
     } finally {
       setPaymentBusy(false);
@@ -291,10 +312,15 @@ export default function StoryDetail() {
 
   const handleRate = async (score) => {
     if (!user) return alert('Vui lòng đăng nhập!');
-    await rateStory({ storyId: id, score });
-    setUserRating(score);
-    const rRes = await getStoryRating(id);
-    setRating(rRes.data);
+    try {
+      await rateStory({ storyId: id, score });
+      setUserRating(score);
+      const rRes = await getStoryRating(id);
+      setRating(rRes.data);
+      toast.success('Đã gửi đánh giá của bạn.');
+    } catch (error) {
+      toastFromError(error, 'Không gửi được đánh giá.');
+    }
   };
 
   const handleComment = async () => {
@@ -311,7 +337,8 @@ export default function StoryDetail() {
         alert('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         return;
       }
-      throw e;
+      toastFromError(e, 'Không gửi được bình luận.');
+      return;
     }
     setNewComment('');
     setSelectedGifUrl(null);
@@ -320,14 +347,19 @@ export default function StoryDetail() {
     const cmRes = await getCommentsByStory(id);
     setComments(cmRes.data);
     setVisibleCount(5);
+    toast.success('Đã gửi bình luận.');
   };
 
   const handleReport = async () => {
     if (!reportReason.trim()) return;
-    await createReport({ storyId: id, reason: reportReason });
-    setShowReport(false);
-    setReportReason('');
-    alert('Đã gửi báo lỗi cho admin!');
+    try {
+      await createReport({ storyId: id, reason: reportReason });
+      setShowReport(false);
+      setReportReason('');
+      toast.success('Đã gửi báo lỗi cho admin.');
+    } catch (error) {
+      toastFromError(error, 'Không gửi được báo lỗi.');
+    }
   };
 
   const loadTrendingGifs = async () => {
@@ -415,8 +447,8 @@ export default function StoryDetail() {
                 marginBottom: '1rem',
                 padding: '1rem',
                 borderRadius: '14px',
-                border: '1px solid rgba(245, 158, 11, 0.18)',
-                background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.88))',
+                border: '1px solid var(--warning-border)',
+                background: 'linear-gradient(135deg, var(--bg-secondary), var(--bg-card))',
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -430,7 +462,7 @@ export default function StoryDetail() {
                 </div>
                 {user && (
                   <div style={{ textAlign: 'right', minWidth: '180px' }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>So du hien tai</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Số dư hiện tại</div>
                     <strong style={{ fontSize: '1.1rem', color: 'var(--text-primary)' }}>
                       {walletBalance.toLocaleString('vi-VN')} VND
                     </strong>
@@ -463,7 +495,7 @@ export default function StoryDetail() {
                 onClick={() => handleUnlockStory('COINS')}
                 disabled={paymentBusy}
               >
-                {paymentBusy ? 'Dang xu ly...' : `Mo khoa bang ${storyCoinPrice.toLocaleString('vi-VN')} xu`}
+                {paymentBusy ? 'Đang xử lý...' : `Mở khóa bằng ${storyCoinPrice.toLocaleString('vi-VN')} xu`}
               </button>
             )}
             {!isStoryUnlocked && user && walletBalance < unlockPrice && (
@@ -477,7 +509,7 @@ export default function StoryDetail() {
                     alignItems: 'center',
                     padding: '0.65rem 0.9rem',
                     borderRadius: '999px',
-                    background: 'rgba(245, 158, 11, 0.12)',
+                    background: 'var(--warning-bg)',
                     color: 'var(--warning)',
                     fontSize: '0.85rem',
                     fontWeight: 600,
@@ -494,20 +526,20 @@ export default function StoryDetail() {
                   alignItems: 'center',
                   padding: '0.65rem 0.9rem',
                   borderRadius: '999px',
-                  background: 'rgba(108, 99, 255, 0.12)',
+                  background: 'var(--accent-bg)',
                   color: 'var(--accent)',
                   fontSize: '0.85rem',
                   fontWeight: 600,
                 }}
               >
-                Con thieu {(storyCoinPrice - coinBalance).toLocaleString('vi-VN')} xu
+                Còn thieu {(storyCoinPrice - coinBalance).toLocaleString('vi-VN')} xu
               </span>
             )}
             {readingHistoryItem?.chapterId && isStoryUnlocked && (
               <button className="btn btn-outline" onClick={handleContinueReading}>
                 {continueChapter?.chapterNumber
-                  ? `Doc tiep Ch.${continueChapter.chapterNumber}`
-                  : 'Doc tiep'}
+                  ? `Đọc tiếp Ch.${continueChapter.chapterNumber}`
+                  : 'Đọc tiếp'}
               </button>
             )}
             <button className={`btn ${following ? 'btn-danger' : 'btn-outline'}`} onClick={handleFollow}>
@@ -519,11 +551,11 @@ export default function StoryDetail() {
                 onClick={handleBookmark}
               >
                 <BookmarkIcon filled={Boolean(storyBookmark)} className="story-detail-bookmark-icon" />
-                {storyBookmark ? 'Mở bookmark' : 'Bookmark trong reader'}
+                {storyBookmark ? 'Mở bookmark' : 'Bookmark trong trình đọc'}
               </button>
             )}
             <button className="btn btn-outline" onClick={() => setShowReport(true)} style={{ color: 'var(--warning)' }}>
-              Bao loi
+              Báo lỗi
             </button>
           </div>
           {(readingHistoryItem?.chapterId || readingNotePreview) && (
@@ -537,7 +569,7 @@ export default function StoryDetail() {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
-                <strong style={{ color: 'var(--accent)' }}>Lan doc gan day</strong>
+                <strong style={{ color: 'var(--accent)' }}>Lần đọc gần đây</strong>
                 {readingHistoryItem?.lastReadAt && (
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                     {new Date(readingHistoryItem.lastReadAt).toLocaleString('vi-VN')}
@@ -546,7 +578,7 @@ export default function StoryDetail() {
               </div>
               {continueChapter && (
                 <p style={{ margin: '0.45rem 0 0', color: 'var(--text-secondary)' }}>
-                  Dang doc den Chuong {continueChapter.chapterNumber}: {continueChapter.title}
+                  Đang đọc đến Chương {continueChapter.chapterNumber}: {continueChapter.title}
                 </p>
               )}
               {readingNotePreview && (
@@ -598,7 +630,7 @@ export default function StoryDetail() {
         <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Mỗi người chỉ được đánh giá 1 lần</p>
         <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'center', fontSize: '1.8rem', cursor: 'pointer' }}>
           {[1, 2, 3, 4, 5].map(star => (
-            <span key={star} onClick={() => handleRate(star)} style={{ color: star <= userRating ? '#f59e0b' : '#555', transition: 'transform 0.2s' }}
+            <span key={star} onClick={() => handleRate(star)} style={{ color: star <= userRating ? 'var(--warning)' : 'var(--text-secondary)', transition: 'transform 0.2s' }}
               onMouseEnter={e => e.target.style.transform = 'scale(1.2)'} onMouseLeave={e => e.target.style.transform = 'scale(1)'}>★</span>
           ))}
         </div>
@@ -717,21 +749,34 @@ export default function StoryDetail() {
           )}
           {comments.length > 0 ? comments.slice(0, visibleCount).map(c => (
             <div key={c.id} style={{ padding: '0.75rem', borderBottom: '1px solid var(--border)', marginBottom: '0.5rem' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.3rem' }}>
-                <strong style={{ color: 'var(--accent)' }}>{c.username || 'Ẩn danh'}</strong>
-                {c.chapterNumber && (
-                  <span style={{
-                    background: 'var(--bg-card)',
-                    color: 'var(--accent)',
-                    borderRadius: '999px',
-                    padding: '0.1rem 0.55rem',
-                    fontSize: '0.72rem',
-                    border: '1px solid var(--border)'
-                  }}>
-                    Chương {c.chapterNumber}
-                  </span>
-                )}
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{new Date(c.createdAt).toLocaleString('vi-VN')}</span>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem',
+                  marginBottom: '0.45rem',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <CommentIdentity comment={c} />
+                  {c.chapterNumber && (
+                    <span style={{
+                      background: 'var(--bg-card)',
+                      color: 'var(--accent)',
+                      borderRadius: '999px',
+                      padding: '0.1rem 0.55rem',
+                      fontSize: '0.72rem',
+                      border: '1px solid var(--border)'
+                    }}>
+                      Chương {c.chapterNumber}
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  {new Date(c.createdAt).toLocaleString('vi-VN')}
+                </span>
               </div>
               <p style={{ margin: 0 }}>{c.content}</p>
               {c.gifUrl && (!c.gifSize || c.gifSize <= 2 * 1024 * 1024) && (
@@ -774,7 +819,7 @@ export default function StoryDetail() {
       {showTopUpModal && (
         <div className="modal-overlay" onClick={() => !paymentBusy && setShowTopUpModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>Nap tien bang MoMo</h2>
+            <h2>Nạp tiền bằng MoMo</h2>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               Nạp vào ví để mua truyện tính phí. Tiền sẽ được cộng vào số dư sau khi giao dịch thành công.
             </p>
@@ -791,10 +836,10 @@ export default function StoryDetail() {
             </div>
             <div className="modal-actions">
               <button className="btn btn-outline" onClick={() => setShowTopUpModal(false)} disabled={paymentBusy}>
-                Huy
+                Hủy
               </button>
               <button className="btn btn-primary" onClick={handleStartMomoTopUp} disabled={paymentBusy}>
-                {paymentBusy ? 'Dang tao giao dich...' : 'Tiep tuc voi MoMo'}
+                {paymentBusy ? 'Đang tạo giao dịch...' : 'Tiếp tục với MoMo'}
               </button>
             </div>
           </div>

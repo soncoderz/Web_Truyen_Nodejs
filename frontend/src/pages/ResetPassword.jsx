@@ -41,7 +41,7 @@ export default function ResetPassword() {
       <div className="auth-card">
         <h2>🔑 Đặt lại Mật Khẩu</h2>
         {error && <div className="alert alert-error">{error}</div>}
-        {message && <div className="alert alert-success" style={{ backgroundColor: 'var(--success)', color: 'white', padding: '0.8rem', borderRadius: '4px', marginBottom: '1rem' }}>{message}</div>}
+        {message && <div className="alert alert-success" style={{ backgroundColor: 'var(--success)', color: 'var(--text-inverse)', padding: '0.8rem', borderRadius: '4px', marginBottom: '1rem' }}>{message}</div>}
         
         {!token ? (
           <div className="alert alert-error">Link không hợp lệ! Thiếu Token xác nhận.</div>

@@ -15,6 +15,13 @@ const MAX_SINGLE_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_MANGA_UPLOAD_BATCH_FILES = 8;
 const MAX_MANGA_UPLOAD_BATCH_BYTES = 20 * 1024 * 1024;
 
+const hasIdParam = (value) =>
+  value !== undefined &&
+  value !== null &&
+  String(value).trim() !== "" &&
+  String(value).trim() !== "undefined" &&
+  String(value).trim() !== "null";
+
 const getStoredUser = () => {
   try {
     const rawUser = localStorage.getItem("user");
@@ -78,7 +85,10 @@ export const getManageStories = (approvalStatus) =>
 export const getMyStories = () => api.get("/stories/mine");
 export const getStoriesForReview = (approvalStatus = "PENDING") =>
   api.get("/stories/review", { params: { approvalStatus } });
-export const getStory = (id) => api.get(`/stories/${id}`);
+export const getStory = (id, options = {}) =>
+  api.get(`/stories/${id}`, {
+    params: options.optional ? { optional: "1" } : undefined,
+  });
 export const searchStories = (params) => api.get("/stories/search", { params });
 export const getTrendingStories = (limit = 10) =>
   api.get("/stories/trending", { params: { limit } });
@@ -110,13 +120,18 @@ export const getAuthors = () => api.get("/authors");
 
 // Chapters
 export const getChaptersByStory = (storyId) =>
-  api.get(`/chapters/story/${storyId}`);
+  hasIdParam(storyId)
+    ? api.get(`/chapters/story/${storyId}`)
+    : Promise.resolve({ data: [] });
 export const getManageChaptersByStory = (storyId) =>
   api.get(`/chapters/story/${storyId}/manage`);
 export const getMyChapters = () => api.get("/chapters/mine");
 export const getChaptersForReview = (params = { approvalStatus: "PENDING" }) =>
   api.get("/chapters/review", { params });
-export const getChapter = (id) => api.get(`/chapters/${id}`);
+export const getChapter = (id, options = {}) =>
+  api.get(`/chapters/${id}`, {
+    params: options.optional ? { optional: "1" } : undefined,
+  });
 export const createChapter = (data) => api.post("/chapters", data);
 export const updateChapter = (id, data) => api.put(`/chapters/${id}`, data);
 export const reviewChapter = (id, approvalStatus, reviewNote = "") =>
@@ -132,6 +147,9 @@ export const getCommentsByPage = (chapterId, pageIndex) =>
   api.get(`/comments/chapter/${chapterId}/page/${pageIndex}`);
 export const createComment = (data) => api.post("/comments", data);
 export const deleteComment = (id) => api.delete(`/comments/${id}`);
+
+// Users
+export const getPublicUserProfile = (id) => api.get(`/users/${id}/public`);
 
 // Ratings
 export const rateStory = (data) => api.post("/ratings", data);

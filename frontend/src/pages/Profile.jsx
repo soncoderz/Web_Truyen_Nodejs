@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
+import RankedAvatar from '../components/RankedAvatar';
 import { useAuth } from '../context/AuthContext';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
 import {
@@ -17,6 +18,7 @@ import {
   getWalletSummary,
   unlockProfileSkin,
 } from '../services/api';
+import { toast, toastFromError } from '../services/toast';
 import { getReadChapters } from '../utils/readingStorage';
 
 function isValidMongoId(id) {
@@ -31,21 +33,21 @@ function formatTimeAgo(dateStr) {
   const diffMs = now - date;
   const diffMin = Math.floor(diffMs / 60000);
 
-  if (diffMin < 1) return 'Vua xong';
-  if (diffMin < 60) return `${diffMin} phut truoc`;
+  if (diffMin < 1) return 'Vừa xong';
+  if (diffMin < 60) return `${diffMin} phút trước`;
 
   const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} gio truoc`;
+  if (diffHour < 24) return `${diffHour} giờ trước`;
 
   const diffDay = Math.floor(diffHour / 24);
-  if (diffDay < 30) return `${diffDay} ngay truoc`;
+  if (diffDay < 30) return `${diffDay} ngày truoc`;
 
   return new Date(dateStr).toLocaleDateString('vi-VN');
 }
 
 function buildBookmarkStory(bookmark) {
   const story = bookmark?.story || null;
-  const fallbackTitle = story?.title || 'Truyen khong con kha dung';
+  const fallbackTitle = story?.title || 'Truyện không còn khả dụng';
 
   return {
     id: story?.id || '',
@@ -73,7 +75,7 @@ function getBookmarkNote(bookmark) {
     return '';
   }
 
-  if (/^(Trang|Doan)\s+\d+$/i.test(note)) {
+  if (/^(?:Trang|Doan|Đoạn)\s+\d+$/i.test(note)) {
     return '';
   }
 
@@ -93,8 +95,8 @@ function getBookmarkLocationLabel(bookmark) {
 
   if (typeof bookmark?.paragraphIndex === 'number') {
     return chapterLabel
-      ? `${chapterLabel} · Doan ${bookmark.paragraphIndex + 1}`
-      : `Doan ${bookmark.paragraphIndex + 1}`;
+      ? `${chapterLabel} · Đoạn ${bookmark.paragraphIndex + 1}`
+      : `Đoạn ${bookmark.paragraphIndex + 1}`;
   }
 
   return chapterLabel;
@@ -102,11 +104,11 @@ function getBookmarkLocationLabel(bookmark) {
 
 function getBookmarkAction(bookmark) {
   if (!bookmark?.story?.id) {
-    return { href: '#', label: 'Khong kha dung', disabled: true };
+    return { href: '#', label: 'Không khả dụng', disabled: true };
   }
 
   if (bookmark.chapterId && !bookmark.chapter?.id) {
-    return { href: '#', label: 'Khong mo duoc vi tri', disabled: true };
+    return { href: '#', label: 'Không mở được vị trí', disabled: true };
   }
 
   if (bookmark.chapter?.id) {
@@ -122,19 +124,19 @@ function getBookmarkAction(bookmark) {
     return {
       href: `/story/${bookmark.story.id}/chapter/${bookmark.chapter.id}${suffix}`,
       label: typeof bookmark.pageIndex === 'number'
-        ? `Doc Trang ${bookmark.pageIndex + 1}`
+        ? `Đọc Trang ${bookmark.pageIndex + 1}`
         : typeof bookmark.paragraphIndex === 'number'
-          ? `Doc Doan ${bookmark.paragraphIndex + 1}`
+          ? `Đọc Đoạn ${bookmark.paragraphIndex + 1}`
           : typeof bookmark.chapter.chapterNumber === 'number'
-            ? `Doc Ch.${bookmark.chapter.chapterNumber}`
-            : 'Doc ngay',
+            ? `Đọc Ch.${bookmark.chapter.chapterNumber}`
+            : 'Đọc ngay',
       disabled: false,
     };
   }
 
   return {
     href: `/story/${bookmark.story.id}`,
-    label: 'Doc ngay',
+    label: 'Đọc ngay',
     disabled: false,
   };
 }
@@ -153,7 +155,7 @@ function getBookmarkChapterLabel(bookmark) {
   }
 
   if (bookmark?.chapterId) {
-    return 'Chuong da luu';
+    return 'Chương đã lưu';
   }
 
   return 'Bookmark tong quat';
@@ -167,19 +169,19 @@ function getBookmarkPositionLabel(bookmark) {
   }
 
   if (typeof paragraphIndex === 'number') {
-    return `Doan ${paragraphIndex + 1}`;
+    return `Đoạn ${paragraphIndex + 1}`;
   }
 
-  return 'Vi tri da luu';
+  return 'Vị trí đã lưu';
 }
 
 function getBookmarkProfileAction(bookmark) {
   if (!bookmark?.story?.id) {
-    return { href: '#', label: 'Khong kha dung', disabled: true };
+    return { href: '#', label: 'Không khả dụng', disabled: true };
   }
 
   if (bookmark.chapterId && !bookmark.chapter?.id) {
-    return { href: '#', label: 'Khong mo duoc vi tri', disabled: true };
+    return { href: '#', label: 'Không mở được vị trí', disabled: true };
   }
 
   if (bookmark.chapter?.id) {
@@ -195,14 +197,14 @@ function getBookmarkProfileAction(bookmark) {
 
     return {
       href: `/story/${bookmark.story.id}/chapter/${bookmark.chapter.id}${suffix}`,
-      label: 'Doc',
+      label: 'Đọc',
       disabled: false,
     };
   }
 
   return {
     href: `/story/${bookmark.story.id}`,
-    label: 'Doc',
+    label: 'Đọc',
     disabled: false,
   };
 }
@@ -282,14 +284,20 @@ export default function Profile() {
 
         setFinanceMessage(
           response.data?.status === 'COMPLETED'
-            ? 'Nap tien vao vi thanh cong.'
-            : response.data?.message || 'Giao dich MoMo chua thanh cong.',
+            ? 'Nạp tiền vào ví thành công.'
+            : response.data?.message || 'Giao dịch MoMo chưa thành công.',
         );
+        if (response.data?.status === 'COMPLETED') {
+          toast.success('Đã nạp tiền vào ví.');
+        } else {
+          toast.info(response.data?.message || 'Giao dịch MoMo chưa hoàn tất.');
+        }
         await loadData();
       } catch (error) {
         if (!cancelled) {
+          toastFromError(error, 'Không xác nhận được giao dịch MoMo.');
           setFinanceMessage(
-            error?.response?.data?.message || 'Khong xac nhan duoc giao dich MoMo.',
+            error?.response?.data?.message || 'Không xác nhận được giao dịch MoMo.',
           );
         }
       } finally {
@@ -317,7 +325,7 @@ export default function Profile() {
       ]);
 
       const historyItems = historyRes.data || [];
-      const followedItems = followedRes.data || [];
+      const followedItems = (followedRes.data || []).filter((story) => story?.id || story?._id);
       const wallet = walletRes.data || null;
       const purchasedIds = wallet?.purchasedStoryIds || [];
 
@@ -331,7 +339,7 @@ export default function Profile() {
 
       const storyResults = await Promise.all(
         storyIds.map((storyId) =>
-          getStory(storyId)
+          getStory(storyId, { optional: true })
             .then((response) => ({ storyId, story: response.data }))
             .catch(() => ({ storyId, story: null })),
         ),
@@ -349,7 +357,7 @@ export default function Profile() {
 
       const chapterResults = await Promise.all(
         chapterIds.map((chapterId) =>
-          getChapter(chapterId)
+          getChapter(chapterId, { optional: true })
             .then((response) => ({ chapterId, chapter: response.data }))
             .catch(() => ({ chapterId, chapter: null })),
         ),
@@ -364,12 +372,12 @@ export default function Profile() {
       if (followedItems.length > 0) {
         const followedChapterResults = await Promise.all(
           followedItems.map((story) =>
-            getChaptersByStory(story.id)
+            getChaptersByStory(story.id || story._id)
               .then((response) => ({
-                storyId: story.id,
+                storyId: story.id || story._id,
                 chapters: response.data || [],
               }))
-              .catch(() => ({ storyId: story.id, chapters: [] })),
+              .catch(() => ({ storyId: story.id || story._id, chapters: [] })),
           ),
         );
 
@@ -388,7 +396,7 @@ export default function Profile() {
       if (purchasedIds.length > 0) {
         const purchasedStoryResults = await Promise.all(
           purchasedIds.map((storyId) =>
-            getStory(storyId)
+            getStory(storyId, { optional: true })
               .then((response) => response.data)
               .catch(() => null),
           ),
@@ -428,8 +436,13 @@ export default function Profile() {
   };
 
   const handleDeleteHistory = async (id) => {
-    await deleteReadingHistoryItem(id);
-    setHistory((prev) => prev.filter((item) => item.id !== id));
+    try {
+      await deleteReadingHistoryItem(id);
+      setHistory((prev) => prev.filter((item) => item.id !== id));
+      toast.success('Đã xóa lịch sử đọc.');
+    } catch (error) {
+      toastFromError(error, 'Không xóa được lịch sử đọc.');
+    }
   };
 
   const handleDeleteBookmark = async (bookmark) => {
@@ -441,7 +454,7 @@ export default function Profile() {
         paragraphIndex: bookmark.paragraphIndex,
       });
     } catch (error) {
-      alert('Khong cap nhat duoc bookmark.');
+      alert('Không cập nhật được bookmark.');
     }
   };
 
@@ -472,13 +485,14 @@ export default function Profile() {
       });
       const payUrl = response.data?.payUrl;
       if (!payUrl) {
-        throw new Error('Khong tao duoc link thanh toan MoMo.');
+        throw new Error('Không tạo được link thanh toán MoMo.');
       }
 
       window.location.assign(payUrl);
     } catch (error) {
+      toastFromError(error, 'Không tạo được giao dịch MoMo.');
       setFinanceMessage(
-        error?.response?.data?.message || error.message || 'Khong tao duoc giao dich MoMo.',
+        error?.response?.data?.message || error.message || 'Không tạo được giao dịch MoMo.',
       );
       setFinanceBusy(false);
     }
@@ -495,12 +509,16 @@ export default function Profile() {
       setFinanceMessage('');
       const response = await exchangeWalletToCoins(Number(exchangeAmount));
       mergeWalletSummary(response.data || null);
+      toast.success(
+        `Đã đổi ${Number(exchangeAmount).toLocaleString('vi-VN')} VND thành ${Number(response.data?.receivedCoins || 0).toLocaleString('vi-VN')} xu.`,
+      );
       setFinanceMessage(
-        `Da doi ${Number(exchangeAmount).toLocaleString('vi-VN')} VND thanh ${Number(response.data?.receivedCoins || 0).toLocaleString('vi-VN')} xu.`,
+        `Đã đổi ${Number(exchangeAmount).toLocaleString('vi-VN')} VND thành ${Number(response.data?.receivedCoins || 0).toLocaleString('vi-VN')} xu.`,
       );
     } catch (error) {
+      toastFromError(error, 'Không đổi được tiền trong ví sang xu.');
       setFinanceMessage(
-        error?.response?.data?.message || 'Khong doi duoc tien trong vi sang xu.',
+        error?.response?.data?.message || 'Không đổi được tiền trong ví sang xu.',
       );
     } finally {
       setFinanceBusy(false);
@@ -512,8 +530,9 @@ export default function Profile() {
       setSkinBusyId(skinId);
       const response = await unlockProfileSkin(skinId);
       mergeWalletSummary(response.data || null);
+      toast.success('Đã mở khóa skin hồ sơ.');
     } catch (error) {
-      alert(error?.response?.data?.message || 'Khong mo khoa duoc skin nay.');
+      toastFromError(error, 'Không mở khóa được skin này.');
     } finally {
       setSkinBusyId('');
     }
@@ -524,8 +543,9 @@ export default function Profile() {
       setSkinBusyId(skinId);
       const response = await equipProfileSkin(skinId);
       mergeWalletSummary(response.data || null);
+      toast.success('Đã đổi giao diện hồ sơ.');
     } catch (error) {
-      alert(error?.response?.data?.message || 'Khong doi duoc skin nay.');
+      toastFromError(error, 'Không đổi được skin này.');
     } finally {
       setSkinBusyId('');
     }
@@ -547,88 +567,82 @@ export default function Profile() {
         padding: '1.5rem',
         borderRadius: '24px',
         border: `1px solid ${activeProfileSkin.border}`,
-        background: activeProfileSkin.background,
-        boxShadow: '0 18px 40px rgba(15, 23, 42, 0.2)',
-      }
-    : {};
-  const profileAvatarStyle = activeProfileSkin
-    ? {
-        border: `3px solid ${activeProfileSkin.accent}`,
-        borderColor: activeProfileSkin.accent,
-        boxShadow: `0 0 0 4px ${activeProfileSkin.border}`,
+        background: `linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0) 42%), ${activeProfileSkin.background}`,
+        boxShadow: `0 24px 44px ${activeProfileSkin.glow || 'rgba(0,0,0,0.18)'}`,
       }
     : {};
 
   return (
     <div className="container">
-      <div className="profile-header" style={profileHeaderStyle}>
-        {user.avatar ? (
-          <img
-            src={user.avatar}
-            alt={user.username}
-            className="profile-avatar-img"
-            referrerPolicy="no-referrer"
-            style={profileAvatarStyle}
-          />
-        ) : (
-          <div className="profile-avatar" style={profileAvatarStyle}>
-            {user.username?.[0]?.toUpperCase()}
-          </div>
-        )}
+      <div className="profile-header profile-rank-header" style={profileHeaderStyle}>
+        <RankedAvatar
+          user={{ username: user.username, avatar: user.avatar }}
+          skin={activeProfileSkin}
+          size="xl"
+          showRibbon
+        />
 
-        <div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{user.username}</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            {user.email}
-          </p>
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-            {user.roles?.map((role) => (
-              <span key={role} className="category-tag">
-                {role.replace('ROLE_', '')}
-              </span>
-            ))}
+        <div className="profile-rank-main">
+          <div className="profile-rank-copy">
+            <h1 style={{ fontSize: '1.7rem', fontWeight: 800 }}>{user.username}</h1>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem' }}>
+              {user.email}
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
+              {user.roles?.map((role) => (
+                <span key={role} className="category-tag">
+                  {role.replace('ROLE_', '')}
+                </span>
+              ))}
+            </div>
+            <div className="profile-rank-chip-row">
+              {activeProfileSkin && (
+                <span className="profile-rank-chip">
+                  Khung {activeProfileSkin.tier || 'Starter'} • {activeProfileSkin.name}
+                </span>
+              )}
+              {mission && (
+                <span className="profile-rank-chip">
+                  Streak {mission.streak || 0} ngày
+                </span>
+              )}
+              {walletSummary && (
+                <span className="profile-rank-chip">
+                  Ví {(walletSummary.balance || 0).toLocaleString('vi-VN')} VND
+                </span>
+              )}
+              {walletSummary && (
+                <span className="profile-rank-chip">
+                  {(walletSummary.coinBalance || 0).toLocaleString('vi-VN')} xu
+                </span>
+              )}
+            </div>
           </div>
+
           <div
             style={{
               display: 'flex',
               gap: '0.75rem',
-              marginTop: '0.9rem',
+              marginTop: '1.1rem',
               flexWrap: 'wrap',
             }}
           >
             <Link to="/studio" className="btn btn-primary btn-sm">
-              Dang truyen va them chuong
+              Đăng truyện và thêm chương
             </Link>
-            {walletSummary && (
-              <span className="category-tag">
-                So du vi: {(walletSummary.balance || 0).toLocaleString('vi-VN')} VND
-              </span>
-            )}
-            {walletSummary && (
-              <span className="category-tag">
-                Xu: {(walletSummary.coinBalance || 0).toLocaleString('vi-VN')}
-              </span>
-            )}
-            {mission && (
-              <span className="category-tag">
-                Streak: {mission.streak || 0} ngay
-              </span>
-            )}
-            {activeProfileSkin && (
-              <span className="category-tag">
-                Skin: {activeProfileSkin.name}
-              </span>
-            )}
+            <Link to={`/users/${user.id}`} className="btn btn-outline btn-sm">
+              Xem profile công khai
+            </Link>
           </div>
         </div>
       </div>
 
-      <div className="tabs">
+      <div className="tabs"> 
         <button
           className={`tab ${tab === 'history' ? 'active' : ''}`}
           onClick={() => setTab('history')}
         >
-          Lich su doc ({history.length})
+          Lịch sử đọc ({history.length})
         </button>
         <button
           className={`tab ${tab === 'bookmarks' ? 'active' : ''}`}
@@ -640,7 +654,7 @@ export default function Profile() {
           className={`tab ${tab === 'following' ? 'active' : ''}`}
           onClick={() => setTab('following')}
         >
-          Theo doi ({followedStories.length})
+          Theo dõi ({followedStories.length})
         </button>
         <button
           className={`tab ${tab === 'purchased' ? 'active' : ''}`}
@@ -652,14 +666,14 @@ export default function Profile() {
           className={`tab ${tab === 'rewards' ? 'active' : ''}`}
           onClick={() => setTab('rewards')}
         >
-          Nhiem vu va skin
+          Nhiệm vụ và skin
         </button>
       </div>
 
       {pageLoading ? (
         <div className="loading">
           <div className="spinner" />
-          Dang tai...
+          Đang tải...
         </div>
       ) : (
         <>
@@ -678,7 +692,7 @@ export default function Profile() {
                         story={
                           story || {
                             id: '',
-                            title: 'Truyen khong con kha dung',
+                            title: 'Truyện không còn khả dụng',
                             coverImage: '',
                             type: null,
                             views: null,
@@ -687,7 +701,7 @@ export default function Profile() {
                         }
                         chapter={chapter}
                         note={item.note?.trim() || ''}
-                        timestampLabel={`Doc lan cuoi ${formatTimeAgo(item.lastReadAt)}`}
+                        timestampLabel={`Đọc lần cuối ${formatTimeAgo(item.lastReadAt)}`}
                         actionHref={
                           hasStory
                             ? chapter?.id
@@ -698,14 +712,14 @@ export default function Profile() {
                         actionLabel={
                           hasStory
                             ? chapter?.chapterNumber
-                              ? `Doc tiep Ch.${chapter.chapterNumber}`
-                              : 'Doc tiep'
-                            : 'Khong kha dung'
+                              ? `Đọc tiếp Ch.${chapter.chapterNumber}`
+                              : 'Đọc tiếp'
+                            : 'Không khả dụng'
                         }
                         actionDisabled={!hasStory}
-                        statusLabel={!hasStory ? 'Khong con truy cap' : ''}
+                        statusLabel={!hasStory ? 'Không còn truy cập' : ''}
                         onDelete={() => handleDeleteHistory(item.id)}
-                        deleteLabel="Xoa lich su"
+                        deleteLabel="Xóa lịch sử"
                       />
                     );
                   })}
@@ -713,7 +727,7 @@ export default function Profile() {
               ) : (
                 <div className="card">
                   <div className="empty-state">
-                    <p>Chua co lich su doc.</p>
+                    <p>Chưa có lịch sử đọc.</p>
                   </div>
                 </div>
               )}
@@ -735,7 +749,7 @@ export default function Profile() {
                         chapterLabel={getBookmarkChapterLabel(bookmark)}
                         positionLabel={getBookmarkPositionLabel(bookmark)}
                         note={getBookmarkNote(bookmark)}
-                        timestampLabel={`Da luu ${formatTimeAgo(bookmark.createdAt)}`}
+                        timestampLabel={`Đã lưu ${formatTimeAgo(bookmark.createdAt)}`}
                         action={action}
                         onDelete={() => handleDeleteBookmark(bookmark)}
                         deleteDisabled={isBookmarkProcessing(
@@ -751,7 +765,7 @@ export default function Profile() {
               ) : (
                 <div className="card">
                   <div className="empty-state">
-                    <p>Chua co bookmark nao.</p>
+                    <p>Chưa có bookmark nào.</p>
                   </div>
                 </div>
               )}
@@ -819,13 +833,13 @@ export default function Profile() {
                       flexWrap: 'wrap',
                     }}
                   >
-                    <h2 style={{ fontSize: '1.05rem' }}>Nap tien vao vi</h2>
+                    <h2 style={{ fontSize: '1.05rem' }}>Nạp tiền vào ví</h2>
                     <span className="category-tag">
-                      So du: {(walletSummary?.balance || 0).toLocaleString('vi-VN')} VND
+                      Số dư: {(walletSummary?.balance || 0).toLocaleString('vi-VN')} VND
                     </span>
                   </div>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.85rem' }}>
-                    Nap tien truc tiep vao vi de mua premium hoac doi sang xu ngay trong profile.
+                    Nạp tiền trực tiếp vào ví để mua premium hoặc đổi sang xu ngay trong hồ sơ.
                   </p>
                   <div className="form-group" style={{ marginBottom: '0.75rem' }}>
                     <label>So tien nap (VND)</label>
@@ -843,7 +857,7 @@ export default function Profile() {
                     onClick={handleStartWalletTopUp}
                     disabled={financeBusy}
                   >
-                    {financeBusy ? 'Dang tao giao dich...' : 'Nap tien vao vi'}
+                    {financeBusy ? 'Đang tạo giao dịch...' : 'Nạp tiền vào ví'}
                   </button>
                 </div>
 
@@ -885,7 +899,7 @@ export default function Profile() {
                     onClick={handleExchangeToCoins}
                     disabled={financeBusy}
                   >
-                    {financeBusy ? 'Dang xu ly...' : 'Doi sang xu'}
+                    {financeBusy ? 'Đang xử lý...' : 'Đổi sang xu'}
                   </button>
                 </div>
 
@@ -915,30 +929,30 @@ export default function Profile() {
               >
                 <div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    Nhiem vu hom nay
+                    Nhiệm vụ hôm nay
                   </div>
                   <div style={{ fontSize: '1.9rem', fontWeight: 800, marginTop: '0.2rem' }}>
                     {mission?.progressCount || 0}/{mission?.target || 3}
                   </div>
                   <p style={{ color: 'var(--text-secondary)', marginTop: '0.45rem' }}>
-                    Doc du {mission?.target || 3} chuong trong ngay de nhan{' '}
+                    Đọc đủ {mission?.target || 3} chương trong ngày để nhận{' '}
                     {(mission?.rewardCoins || 120).toLocaleString('vi-VN')} xu.
                   </p>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    Streak hien tai
+                    Streak hiện tại
                   </div>
                   <div style={{ fontSize: '1.9rem', fontWeight: 800, marginTop: '0.2rem' }}>
-                    {mission?.streak || 0} ngay
+                    {mission?.streak || 0} ngày
                   </div>
                   <p style={{ color: 'var(--text-secondary)', marginTop: '0.45rem' }}>
-                    Ky luc: {mission?.longestStreak || 0} ngay lien tiep
+                    Ky luc: {mission?.longestStreak || 0} ngày lien tiep
                   </p>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    So du xu
+                    Số dư xu
                   </div>
                   <div style={{ fontSize: '1.9rem', fontWeight: 800, marginTop: '0.2rem', color: 'var(--warning)' }}>
                     {(walletSummary?.coinBalance || 0).toLocaleString('vi-VN')}
@@ -961,13 +975,13 @@ export default function Profile() {
                   }}
                 >
                   <div>
-                    <h2 style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>Badge streak</h2>
+                    <h2 style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>Huy hiệu streak</h2>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                      Mo khoa khi giu streak doc lien tiep.
+                      Mở khóa khi gi? streak ??c li?n ti?p.
                     </p>
                   </div>
                   <span className="category-tag">
-                    Da mo khoa {badges.filter((badge) => badge.unlocked).length}/{badges.length}
+                    Đã mở khóa {badges.filter((badge) => badge.unlocked).length}/{badges.length}
                   </span>
                 </div>
                 <div
@@ -984,16 +998,16 @@ export default function Profile() {
                         padding: '1rem',
                         borderRadius: '16px',
                         border: badge.unlocked
-                          ? '1px solid rgba(16,185,129,0.35)'
+                          ? '1px solid var(--success-border)'
                           : '1px solid var(--border)',
                         background: badge.unlocked
-                          ? 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(15,23,42,0.08))'
+                          ? 'linear-gradient(135deg, var(--success-bg), var(--bg-secondary))'
                           : 'var(--bg-card)',
                         opacity: badge.unlocked ? 1 : 0.72,
                       }}
                     >
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                        {badge.requiredStreak} ngay
+                        {badge.requiredStreak} ngày
                       </div>
                       <strong style={{ display: 'block', marginTop: '0.35rem' }}>{badge.name}</strong>
                       <p style={{ marginTop: '0.4rem', fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
@@ -1018,78 +1032,55 @@ export default function Profile() {
                   <div>
                     <h2 style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>Skin profile</h2>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                      Mua bang xu va equip ngay trong ho so.
+                      Mua bang xu va equip ngày trong ho so.
                     </p>
                   </div>
                   {activeProfileSkin && (
-                    <span className="category-tag">Dang dung: {activeProfileSkin.name}</span>
+                    <span className="category-tag">Đang dùng: {activeProfileSkin.name}</span>
                   )}
                 </div>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                    gap: '1rem',
-                  }}
-                >
+                <div className="profile-skin-grid">
                   {profileSkins.map((skin) => (
                     <div
                       key={skin.id}
+                      className={`profile-skin-card ${skin.equipped ? 'active' : ''}`}
                       style={{
-                        borderRadius: '18px',
-                        border: `1px solid ${skin.border}`,
-                        background: skin.background,
-                        padding: '1rem',
-                        color: skin.textColor,
-                        boxShadow: skin.equipped
-                          ? '0 16px 30px rgba(15, 23, 42, 0.24)'
-                          : 'none',
+                        '--skin-bg': skin.background,
+                        '--skin-border': skin.border,
+                        '--skin-glow': skin.glow || 'rgba(0,0,0,0.18)',
+                        '--skin-text': skin.textColor,
                       }}
                     >
-                      <div
-                        style={{
-                          width: '52px',
-                          height: '52px',
-                          borderRadius: '50%',
-                          background: 'rgba(255,255,255,0.12)',
-                          border: `2px solid ${skin.accent}`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 800,
-                          marginBottom: '0.9rem',
-                        }}
-                      >
-                        {user.username?.[0]?.toUpperCase()}
+                      <div className="profile-skin-card-head">
+                        <RankedAvatar
+                          user={{ username: user.username, avatar: user.avatar }}
+                          skin={skin}
+                          size="lg"
+                          showRibbon
+                        />
+                        <div className="profile-skin-copy">
+                          <div className="profile-skin-tier-row">
+                            <span className="profile-skin-pill">{skin.tier || 'Starter'}</span>
+                            {skin.equipped && <span className="profile-skin-pill state">Đang dùng</span>}
+                            {!skin.owned && <span className="profile-skin-pill state">Chưa mở khóa</span>}
+                          </div>
+                          <strong>{skin.name}</strong>
+                          <p>{skin.description}</p>
+                        </div>
                       </div>
-                      <strong style={{ display: 'block', fontSize: '1rem' }}>{skin.name}</strong>
-                      <p style={{ marginTop: '0.35rem', minHeight: '42px', opacity: 0.9 }}>
-                        {skin.description}
-                      </p>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          gap: '0.75rem',
-                          alignItems: 'center',
-                          marginTop: '0.9rem',
-                          flexWrap: 'wrap',
-                        }}
-                      >
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            padding: '0.35rem 0.7rem',
-                            borderRadius: '999px',
-                            background: 'rgba(255,255,255,0.14)',
-                            fontSize: '0.8rem',
-                            fontWeight: 700,
-                          }}
-                        >
+
+                      <div className="profile-skin-meta">
+                        <span className="profile-skin-price">
                           {skin.priceCoins > 0
                             ? `${skin.priceCoins.toLocaleString('vi-VN')} xu`
-                            : 'Mien phi'}
+                            : 'Miễn phí'}
                         </span>
+                        <span className="profile-skin-crest">
+                          Huy hiệu {skin.crest || skin.ribbon || skin.tier || 'I'}
+                        </span>
+                      </div>
+
+                      <div className="profile-skin-actions">
                         {skin.owned ? (
                           <button
                             className={`btn btn-sm ${skin.equipped ? 'btn-primary' : 'btn-outline'}`}
@@ -1097,10 +1088,10 @@ export default function Profile() {
                             disabled={skinBusyId === skin.id || skin.equipped}
                           >
                             {skin.equipped
-                              ? 'Dang su dung'
+                              ? 'Đang sử dụng'
                               : skinBusyId === skin.id
-                                ? 'Dang cap nhat...'
-                                : 'Su dung'}
+                                ? 'Đang cập nhật...'
+                                : 'Sử dụng'}
                           </button>
                         ) : (
                           <button
@@ -1108,7 +1099,7 @@ export default function Profile() {
                             onClick={() => handleUnlockSkin(skin.id)}
                             disabled={skinBusyId === skin.id}
                           >
-                            {skinBusyId === skin.id ? 'Dang mo khoa...' : 'Mo khoa'}
+                            {skinBusyId === skin.id ? 'Đang mở khóa...' : 'Mở khóa'}
                           </button>
                         )}
                       </div>
@@ -1142,7 +1133,7 @@ function FollowedStoryCard({ story, chapters, userId }) {
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           ) : (
-            'Truyen'
+            'Truyện'
           )}
         </div>
         <div className="story-info">
@@ -1163,8 +1154,8 @@ function FollowedStoryCard({ story, chapters, userId }) {
             >
               {story.type === 'MANGA' ? 'Manga' : 'Novel'}
             </span>
-            <span>Views {story.views || 0}</span>
-            <span>Rating {story.averageRating || 0}</span>
+            <span>Lượt xem {story.views || 0}</span>
+            <span>Đánh giá {story.averageRating || 0}</span>
           </div>
           {recentChapter && (
             <div className="story-meta" style={{ marginTop: 6, fontSize: '0.82rem' }}>
@@ -1197,13 +1188,13 @@ function FollowedStoryCard({ story, chapters, userId }) {
         <div className="story-footer-left">
           {recentChapter && (
             <span className="muted">
-              Cap nhat {formatTimeAgo(recentChapter.createdAt)}
+              Cập nhật {formatTimeAgo(recentChapter.createdAt)}
             </span>
           )}
         </div>
         <div className="story-actions">
           <Link to={actionHref} className="btn btn-sm btn-primary">
-            {recentChapter ? `Doc Ch.${recentChapter.chapterNumber}` : 'Xem truyen'}
+            {recentChapter ? `Đọc Ch.${recentChapter.chapterNumber}` : 'Xem truyện'}
           </Link>
         </div>
       </div>
@@ -1229,7 +1220,7 @@ function PurchasedStoryCard({ story, chapters, userId }) {
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           ) : (
-            'Truyen'
+            'Truyện'
           )}
         </div>
         <div className="story-info">
@@ -1284,12 +1275,12 @@ function PurchasedStoryCard({ story, chapters, userId }) {
       <div className="story-card-footer">
         <div className="story-footer-left">
           <span className="muted">
-            {recentChapter ? `Cap nhat ${formatTimeAgo(recentChapter.createdAt)}` : 'Da mo khoa'}
+            {recentChapter ? `Cập nhật ${formatTimeAgo(recentChapter.createdAt)}` : 'Đã mở khóa'}
           </span>
         </div>
         <div className="story-actions">
           <Link to={actionHref} className="btn btn-sm btn-primary">
-            {recentChapter ? `Doc Ch.${recentChapter.chapterNumber}` : 'Doc truyen'}
+            {recentChapter ? `Đọc Ch.${recentChapter.chapterNumber}` : 'Đọc truyện'}
           </Link>
         </div>
       </div>
@@ -1339,7 +1330,7 @@ function LibraryStoryCard({
           {story?.coverImage ? (
             <img
               src={story.coverImage}
-              alt={story?.title || 'Truyen'}
+              alt={story?.title || 'Truyện'}
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           ) : (
@@ -1355,7 +1346,7 @@ function LibraryStoryCard({
               alignItems: 'flex-start',
             }}
           >
-            <h3>{story?.title || 'Truyen khong con kha dung'}</h3>
+            <h3>{story?.title || 'Truyện không còn khả dụng'}</h3>
             {statusLabel && <span className="story-library-state">{statusLabel}</span>}
           </div>
 
@@ -1377,9 +1368,9 @@ function LibraryStoryCard({
                   {isManga ? 'Manga' : 'Novel'}
                 </span>
               )}
-              {typeof story?.views === 'number' && <span>Views {story.views}</span>}
+              {typeof story?.views === 'number' && <span>Lượt xem {story.views}</span>}
               {typeof story?.averageRating === 'number' && (
-                <span>Rating {story.averageRating}</span>
+                <span>Đánh giá {story.averageRating}</span>
               )}
             </div>
           )}
@@ -1488,8 +1479,8 @@ function BookmarkLibraryItem({
 
           <div className="bookmark-meta-row">
             {timestampLabel && <span>{timestampLabel}</span>}
-            {chapterUnavailable && <span>Khong con truy cap chuong da bookmark</span>}
-            {!bookmark?.story && <span>Truyen nay khong con kha dung</span>}
+            {chapterUnavailable && <span>Không còn truy cập chương đã bookmark</span>}
+            {!bookmark?.story && <span>Truyện này không còn khả dụng</span>}
           </div>
         </div>
 

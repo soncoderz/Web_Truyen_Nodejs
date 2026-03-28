@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import BookmarkIcon from '../components/BookmarkIcon';
+import { Link, useSearchParams } from 'react-router-dom';
+import HeartIcon from '../components/HeartIcon';
 import { useAuth } from '../context/AuthContext';
-import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
+import useFollowedStories from '../hooks/useFollowedStories';
 import { getCategories, getStories, searchStories } from '../services/api';
 
 export default function StoryList() {
-  const navigate = useNavigate();
   const { user } = useAuth();
-  const { getStoryBookmark } = useBookmarks(user);
+  const { isFollowingStory, isProcessing, toggleFollow } = useFollowedStories(user);
   const [stories, setStories] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -65,33 +64,26 @@ export default function StoryList() {
 
   const handleStoryBookmark = async (story) => {
     if (!user) {
-      alert('Vui long dang nhap!');
+      alert('Vui lòng đăng nhập!');
       return;
     }
 
-    const bookmark = getStoryBookmark(story.id);
-    if (!bookmark?.chapterId) {
-      alert('Bookmark duoc dat trong luc doc chuong.');
-      return;
-    }
-
-    const { pageIndex, paragraphIndex } = getBookmarkLocation(bookmark);
-    const params = new URLSearchParams();
-    if (typeof pageIndex === 'number') {
-      params.set('page', String(pageIndex + 1));
-    }
-    if (typeof paragraphIndex === 'number') {
-      params.set('paragraph', String(paragraphIndex + 1));
-    }
-    const suffix = params.toString() ? `?${params.toString()}` : '';
-    navigate(`/story/${bookmark.storyId}/chapter/${bookmark.chapterId}${suffix}`);
+    toggleFollow(story.id)
+      .then((result) => {
+        if (result.requiresAuth) {
+          alert('Vui lòng đăng nhập để theo dõi truyện.');
+        }
+      })
+      .catch(() => {
+        alert('Không cập nhật được trạng thái theo dõi.');
+      });
   };
 
   return (
     <div className="container">
       <h1 className="page-title">
         {type === 'MANGA'
-          ? 'Truyen Tranh'
+          ? 'Truyện Tranh'
           : type === 'NOVEL'
             ? 'Light Novel'
             : 'Tat ca truyen'}
@@ -100,13 +92,13 @@ export default function StoryList() {
       <div className="search-bar">
         <input
           className="form-control"
-          placeholder="Tim kiem truyen..."
+          placeholder="Tìm kiếm truyện..."
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
         />
         <select className="form-control" value={type} onChange={(event) => setType(event.target.value)}>
-          <option value="">Tat ca loai</option>
-          <option value="MANGA">Truyen Tranh</option>
+          <option value="">Tất cả loại</option>
+          <option value="MANGA">Truyện Tranh</option>
           <option value="NOVEL">Light Novel</option>
         </select>
         <select
@@ -114,7 +106,7 @@ export default function StoryList() {
           value={categoryId}
           onChange={(event) => setCategoryId(event.target.value)}
         >
-          <option value="">Tat ca the loai</option>
+          <option value="">Tất cả thể loại</option>
           {categories.map((category) => (
             <option key={category.id} value={category.id}>
               {category.name}
@@ -122,9 +114,9 @@ export default function StoryList() {
           ))}
         </select>
         <select className="form-control" value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option value="">Tat ca trang thai</option>
-          <option value="ONGOING">Dang tien hanh</option>
-          <option value="COMPLETED">Hoan thanh</option>
+          <option value="">Tất cả trạng thái</option>
+          <option value="ONGOING">Đang tiến hành</option>
+          <option value="COMPLETED">Hoàn thành</option>
           <option value="DROPPED">Ngung</option>
         </select>
       </div>
@@ -132,27 +124,29 @@ export default function StoryList() {
       {loading ? (
         <div className="loading">
           <div className="spinner" />
-          Dang tai...
+          Đang tải...
         </div>
       ) : stories.length > 0 ? (
         <div className="story-grid">
           {stories.map((story) => {
-            const bookmarked = Boolean(getStoryBookmark(story.id));
+            const bookmarked = isFollowingStory(story.id);
+            const bookmarkBusy = isProcessing(story.id);
             return (
               <div key={story.id} className="story-card">
                 <button
                   type="button"
-                  className={`story-bookmark-btn ${bookmarked ? 'active' : ''}`}
+                  className={`story-bookmark-btn story-follow-btn ${bookmarked ? 'active' : ''}`}
                   aria-pressed={bookmarked}
-                  aria-label={bookmarked ? `Mo bookmark ${story.title}` : `Mo reader de dat bookmark cho ${story.title}`}
-                  title={bookmarked ? 'Mo bookmark' : 'Bookmark trong reader'}
+                  aria-label={bookmarked ? `Bỏ theo dõi ${story.title}` : `Theo dõi ${story.title}`}
+                  title={bookmarked ? 'Bỏ theo dõi truyện' : 'Theo dõi truyện'}
+                  disabled={bookmarkBusy}
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     handleStoryBookmark(story);
                   }}
                 >
-                  <BookmarkIcon filled={bookmarked} className="story-bookmark-icon" />
+                  <HeartIcon filled={bookmarked} className="story-follow-icon" />
                 </button>
 
                 <Link to={`/story/${story.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
@@ -164,7 +158,7 @@ export default function StoryList() {
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
                     ) : (
-                      'Truyen'
+                      'Truyện'
                     )}
                   </div>
                   <div className="story-info">
@@ -186,8 +180,8 @@ export default function StoryList() {
                       >
                         {story.type === 'MANGA' ? 'Manga' : 'Novel'}
                       </span>
-                      <span>Views {story.views || 0}</span>
-                      <span>Rating {story.averageRating || 0}</span>
+                      <span>Lượt xem {story.views || 0}</span>
+                      <span>Đánh giá {story.averageRating || 0}</span>
                     </div>
                   </div>
                 </Link>
@@ -197,8 +191,8 @@ export default function StoryList() {
         </div>
       ) : (
         <div className="empty-state">
-          <div className="icon">Tim</div>
-          <p>Khong tim thay truyen nao.</p>
+          <div className="icon">Tìm</div>
+          <p>Không tìm thấy truyện nào.</p>
         </div>
       )}
     </div>

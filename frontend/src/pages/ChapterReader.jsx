@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
+import CommentIdentity from '../components/CommentIdentity';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
@@ -18,6 +19,7 @@ import {
   saveReaderNote,
   saveReadingHistory,
 } from '../services/api';
+import { toast, toastFromError } from '../services/toast';
 
 const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
 
@@ -72,7 +74,7 @@ function getBookmarkDisplayNote(note, fallbackLabel = '') {
     return '';
   }
 
-  if (/^(Trang|Doan)\s+\d+$/i.test(normalizedNote)) {
+  if (/^(?:Trang|Doan|Đoạn)\s+\d+$/i.test(normalizedNote)) {
     return '';
   }
 
@@ -213,7 +215,7 @@ function MangaPageWithComments({
   };
 
   const submitPageComment = async () => {
-    if (!user) return alert('Vui long dang nhap de binh luan!');
+    if (!user) return alert('Vui lòng đăng nhập để bình luận!');
     if (!text.trim()) return;
     try {
       setSending(true);
@@ -225,8 +227,10 @@ function MangaPageWithComments({
       });
       setText('');
       await loadPageComments();
+      toast.success('Đã gửi bình luận.');
     } catch (e) {
       console.error(e);
+      toastFromError(e, 'Không gửi được bình luận.');
     }
     setSending(false);
   };
@@ -237,7 +241,7 @@ function MangaPageWithComments({
       return;
     }
     if (!user) {
-      alert('Vui long dang nhap de luu bookmark va ghi chu.');
+      alert('Vui lòng đăng nhập để lưu bookmark và ghi chú.');
       return;
     }
     setBookmarkOpen((value) => !value);
@@ -249,19 +253,19 @@ function MangaPageWithComments({
       if (!normalizedDraft) {
         const result = await onDeleteNote?.(idx);
         if (result?.requiresAuth) {
-          alert('Vui long dang nhap!');
+          alert('Vui lòng đăng nhập!');
           return;
         }
       } else {
         const result = await onSaveNote?.(idx, noteDraft);
         if (result?.requiresAuth) {
-          alert('Vui long dang nhap!');
+          alert('Vui lòng đăng nhập!');
           return;
         }
       }
       setBookmarkOpen(false);
     } catch (error) {
-      alert('Khong luu duoc ghi chu.');
+      alert('Không lưu được ghi chú.');
     }
   };
 
@@ -279,12 +283,12 @@ function MangaPageWithComments({
 
       const result = await onSaveBookmark?.(idx);
       if (result?.requiresAuth) {
-        alert('Vui long dang nhap!');
+        alert('Vui lòng đăng nhập!');
         return;
       }
       setBookmarkOpen(false);
     } catch (error) {
-      alert('Khong luu duoc bookmark.');
+      alert('Không lưu được bookmark.');
     }
   };
 
@@ -302,12 +306,12 @@ function MangaPageWithComments({
 
       const result = await onRemoveBookmark?.(idx);
       if (result?.requiresAuth) {
-        alert('Vui long dang nhap!');
+        alert('Vui lòng đăng nhập!');
         return;
       }
       setBookmarkOpen(false);
     } catch (error) {
-      alert('Khong xoa duoc bookmark.');
+      alert('Không xóa được bookmark.');
     }
   };
 
@@ -362,7 +366,7 @@ function MangaPageWithComments({
             className="manga-page-bookmark-toggle"
             ref={bookmarkBtnRef}
             onClick={toggleBookmarkPanel}
-            title={bookmarked ? `Mo bookmark va ghi chu cho trang ${idx + 1}` : `Luu bookmark va ghi chu cho trang ${idx + 1}`}
+            title={bookmarked ? `Mở bookmark và ghi chú cho trang ${idx + 1}` : `Lưu bookmark và ghi chú cho trang ${idx + 1}`}
             aria-pressed={bookmarked}
             disabled={busy}
             style={{
@@ -372,18 +376,18 @@ function MangaPageWithComments({
               width: '42px',
               height: '42px',
               borderRadius: '50%',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
+              border: '1px solid var(--badge-overlay-border)',
               background: bookmarked
                 ? 'linear-gradient(135deg, var(--accent), var(--warning))'
-                : 'rgba(15, 23, 42, 0.82)',
-              color: '#fff',
+                : 'var(--badge-overlay)',
+              color: 'var(--text-h)',
               cursor: busy ? 'wait' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               boxShadow: bookmarked
                 ? '0 0 18px rgba(108, 99, 255, 0.35)'
-                : '0 8px 24px rgba(15, 23, 42, 0.35)',
+                : 'var(--shadow)',
               transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
               zIndex: 10,
             }}
@@ -398,14 +402,14 @@ function MangaPageWithComments({
                   minWidth: '16px',
                   height: '16px',
                   borderRadius: '999px',
-                  background: 'linear-gradient(135deg, #38bdf8, #60a5fa)',
-                  color: '#fff',
+                  background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))',
+                  color: 'var(--text-inverse)',
                   fontSize: '0.62rem',
                   fontWeight: 800,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(56, 189, 248, 0.35)',
+                  boxShadow: '0 4px 12px var(--accent-glow)',
                 }}
               >
                 N
@@ -423,10 +427,10 @@ function MangaPageWithComments({
               bottom: '64px',
               zIndex: 16,
               width: 'min(300px, calc(100% - 24px))',
-              background: 'rgba(15, 23, 42, 0.96)',
-              border: '1px solid rgba(96, 165, 250, 0.18)',
+              background: 'linear-gradient(180deg, var(--bg-card), var(--bg-secondary))',
+              border: '1px solid var(--accent-border)',
               borderRadius: '14px',
-              boxShadow: '0 20px 60px rgba(15, 23, 42, 0.55)',
+              boxShadow: 'var(--shadow)',
               padding: '0.85rem',
               lineHeight: 1.4,
             }}
@@ -441,11 +445,11 @@ function MangaPageWithComments({
               }}
             >
               <div>
-                <strong style={{ display: 'block', color: '#fff', fontSize: '0.88rem' }}>
+                <strong style={{ display: 'block', color: 'var(--text-h)', fontSize: '0.88rem' }}>
                   {bookmarkLabel}
                 </strong>
-                <span style={{ color: 'rgba(226, 232, 240, 0.7)', fontSize: '0.74rem' }}>
-                  Ghi chu cua trang nay duoc luu rieng, khong bi mat khi doi hoac bo bookmark.
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.74rem' }}>
+                  Ghi chú của trang này được lưu riêng, không bị mất khi đổi hoặc bỏ bookmark.
                 </span>
               </div>
               <button
@@ -454,7 +458,7 @@ function MangaPageWithComments({
                 style={{
                   background: 'transparent',
                   border: 'none',
-                  color: 'rgba(226, 232, 240, 0.7)',
+                  color: 'var(--text-secondary)',
                   cursor: 'pointer',
                   padding: 0,
                   lineHeight: 1,
@@ -469,20 +473,20 @@ function MangaPageWithComments({
               className="form-control"
               value={noteDraft}
               onChange={(event) => setNoteDraft(event.target.value)}
-              placeholder="Them ghi chu rieng cho trang nay..."
+              placeholder="Thêm ghi chú riêng cho trang này..."
               rows={4}
               style={{
                 width: '100%',
                 resize: 'vertical',
                 minHeight: '110px',
-                background: 'rgba(2, 6, 23, 0.78)',
-                borderColor: 'rgba(96, 165, 250, 0.12)',
-                color: '#fff',
+                background: 'var(--bg-primary)',
+                borderColor: 'var(--border)',
+                color: 'var(--text-primary)',
               }}
             />
 
-            <p style={{ margin: '0.55rem 0 0', fontSize: '0.74rem', color: 'rgba(226, 232, 240, 0.68)' }}>
-              Ban co the luu ghi chu ma khong can giu bookmark, hoac bo bookmark ma ghi chu van con.
+            <p style={{ margin: '0.55rem 0 0', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+              Bạn có thể lưu ghi chú mà không cần giữ bookmark, hoặc bỏ bookmark mà ghi chú vẫn còn.
             </p>
 
             <div
@@ -502,7 +506,7 @@ function MangaPageWithComments({
                     onClick={() => setNoteDraft('')}
                     disabled={busy}
                   >
-                    Xoa o nhap
+                    Xóa ô nhập
                   </button>
                 )}
                 <button
@@ -511,7 +515,7 @@ function MangaPageWithComments({
                   onClick={handleSaveNote}
                   disabled={busy}
                 >
-                  {noteBusy ? 'Dang luu...' : 'Luu ghi chu'}
+                  {noteBusy ? 'Đang lưu...' : 'Lưu ghi chú'}
                 </button>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -527,12 +531,12 @@ function MangaPageWithComments({
                           setBookmarkOpen(false);
                         }
                       } catch (error) {
-                        alert('Khong xoa duoc ghi chu.');
+                        alert('Không xóa được ghi chú.');
                       }
                     }}
                     disabled={busy}
                   >
-                    Xoa ghi chu
+                    Xóa ghi chú
                   </button>
                 )}
                 {bookmarked ? (
@@ -542,7 +546,7 @@ function MangaPageWithComments({
                     onClick={handleRemoveBookmark}
                     disabled={busy}
                   >
-                    {bookmarkBusy ? 'Dang xu ly...' : 'Bo bookmark'}
+                    {bookmarkBusy ? 'Đang xử lý...' : 'Bỏ bookmark'}
                   </button>
                 ) : (
                   <button
@@ -551,7 +555,7 @@ function MangaPageWithComments({
                     onClick={handleSaveBookmark}
                     disabled={busy}
                   >
-                    {bookmarkBusy ? 'Dang luu...' : 'Luu bookmark'}
+                    {bookmarkBusy ? 'Đang lưu...' : 'Lưu bookmark'}
                   </button>
                 )}
               </div>
@@ -564,7 +568,7 @@ function MangaPageWithComments({
           className="manga-page-comment-toggle"
           ref={btnRef}
           onClick={togglePanel}
-          title={`Binh luan trang ${idx + 1}`}
+          title={`Bình luận trang ${idx + 1}`}
           style={{
             position: 'absolute',
             right: '12px',
@@ -572,19 +576,19 @@ function MangaPageWithComments({
             width: '42px',
             height: '42px',
             borderRadius: '50%',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
+            border: '1px solid var(--badge-overlay-border)',
             background: open
               ? 'linear-gradient(135deg, var(--accent), var(--warning))'
-              : 'rgba(15, 23, 42, 0.82)',
-            color: '#fff',
+              : 'var(--badge-overlay)',
+            color: 'var(--text-h)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '1rem',
             boxShadow: open
-              ? '0 0 18px rgba(59, 130, 246, 0.35)'
-              : '0 8px 24px rgba(15, 23, 42, 0.35)',
+                ? '0 0 18px var(--accent-glow)'
+              : 'var(--shadow)',
             transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
             zIndex: 10,
           }}
@@ -605,14 +609,14 @@ function MangaPageWithComments({
               height: '18px',
               borderRadius: '999px',
               background: 'linear-gradient(135deg, #ef4444, #f97316)',
-              color: '#fff',
+              color: 'var(--text-inverse)',
               fontSize: '0.62rem',
               fontWeight: 800,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               padding: '0 4px',
-              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.35)',
+              boxShadow: '0 4px 12px var(--danger-border)',
             }}>
               {commentCount > 99 ? '99+' : commentCount}
             </span>
@@ -659,7 +663,7 @@ function MangaPageWithComments({
               background: 'var(--bg-header)',
             }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                💬 Binh luan trang {idx + 1}
+                💬 Bình luận trang {idx + 1}
               </span>
               <button
                 onClick={togglePanel}
@@ -680,17 +684,26 @@ function MangaPageWithComments({
             <div className="page-comment-list" style={{ flex: 1, overflowY: 'auto', padding: '0.75rem 0.9rem' }}>
               {loading ? (
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', textAlign: 'center', margin: '1rem 0' }}>
-                  Dang tai...
+                  Đang tải...
                 </p>
               ) : comments.length === 0 ? (
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', textAlign: 'center', margin: '1.25rem 0' }}>
-                  Chua co binh luan nao cho trang nay.
+                  Chưa có bình luận nào cho trang này.
                 </p>
               ) : (
                 comments.map((comment) => (
                   <div key={comment.id} style={{ padding: '0.55rem 0', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', gap: '0.45rem', alignItems: 'baseline', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
-                      <strong style={{ color: 'var(--accent)', fontSize: '0.82rem' }}>{comment.username || 'An danh'}</strong>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '0.55rem',
+                        alignItems: 'center',
+                        marginBottom: '0.25rem',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <CommentIdentity comment={comment} compact />
                       <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
                         {new Date(comment.createdAt).toLocaleString('vi-VN')}
                       </span>
@@ -714,7 +727,7 @@ function MangaPageWithComments({
                 ref={inputRef}
                 className="form-control"
                 style={{ flex: 1, fontSize: '0.84rem' }}
-                placeholder="Viet binh luan theo trang..."
+                placeholder="Viết bình luận theo trang..."
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && submitPageComment()}
@@ -725,7 +738,7 @@ function MangaPageWithComments({
                 disabled={sending}
                 style={{ whiteSpace: 'nowrap' }}
               >
-                Gui
+                Gửi
               </button>
             </div>
           </div>
@@ -886,7 +899,7 @@ export default function ChapterReader() {
       setChapters([]);
       setComments([]);
       setLoadError(
-        e?.response?.data?.message || 'Khong mo duoc chuong nay. Hay mo khoa truyen truoc.',
+          e?.response?.data?.message || 'Không mở được chương này. Hãy mở khóa truyện trước.',
       );
       setPageNotes({});
       setReadingHistoryItem(null);
@@ -966,7 +979,7 @@ export default function ChapterReader() {
     }
 
     setNoteSaving(true);
-    setNoteStatus('Dang luu ghi chu...');
+    setNoteStatus('Đang lưu ghi chú...');
     try {
       const response = await saveReadingHistory({
         storyId,
@@ -977,10 +990,10 @@ export default function ChapterReader() {
       const savedNote = savedItem?.note || '';
       setReadingHistoryItem(savedItem);
       lastSavedNoteRef.current = normalizeReadingNote(savedNote);
-      setNoteStatus(savedNote ? 'Da luu ghi chu.' : 'Da xoa ghi chu.');
+      setNoteStatus(savedNote ? 'Đã lưu ghi chú.' : 'Đã xóa ghi chú.');
     } catch (error) {
       console.error(error);
-      setNoteStatus('Khong luu duoc ghi chu.');
+      setNoteStatus('Không lưu được ghi chú.');
     } finally {
       setNoteSaving(false);
     }
@@ -1001,7 +1014,7 @@ export default function ChapterReader() {
 
   const handleReadingNoteToggle = () => {
     if (!user) {
-      alert('Vui long dang nhap de luu ghi chu.');
+      alert('Vui lòng đăng nhập để lưu ghi chú.');
       return;
     }
 
@@ -1068,11 +1081,11 @@ export default function ChapterReader() {
         note: `Trang ${pageIndex + 1}`,
       });
       if (result.requiresAuth) {
-        alert('Vui long dang nhap!');
+        alert('Vui lòng đăng nhập!');
       }
       return result;
     } catch (error) {
-      alert('Khong cap nhat duoc bookmark.');
+      alert('Không cập nhật được bookmark.');
       throw error;
     }
   };
@@ -1085,11 +1098,11 @@ export default function ChapterReader() {
         pageIndex,
       });
       if (result?.requiresAuth) {
-        alert('Vui long dang nhap!');
+        alert('Vui lòng đăng nhập!');
       }
       return result;
     } catch (error) {
-      alert('Khong cap nhat duoc bookmark.');
+      alert('Không cập nhật được bookmark.');
       throw error;
     }
   };
@@ -1101,13 +1114,13 @@ export default function ChapterReader() {
         chapterId,
         paragraphIndex,
         textSnippet: buildParagraphSnippet(paragraph),
-        note: `Doan ${paragraphIndex + 1}`,
+        note: `Đoạn ${paragraphIndex + 1}`,
       });
       if (result.requiresAuth) {
-        alert('Vui long dang nhap!');
+        alert('Vui lòng đăng nhập!');
       }
     } catch (error) {
-      alert('Khong cap nhat duoc bookmark.');
+      alert('Không cập nhật được bookmark.');
     }
   };
 
@@ -1173,7 +1186,7 @@ export default function ChapterReader() {
       clearTimeout(noteSaveTimer.current);
     }
 
-    setNoteStatus('Dang luu ghi chu...');
+    setNoteStatus('Đang lưu ghi chú...');
     noteSaveTimer.current = setTimeout(() => {
       persistReadingNote(readingNote);
     }, 700);
@@ -1208,7 +1221,7 @@ export default function ChapterReader() {
   }, [isManga, showReadingNote]);
 
   const handleComment = async () => {
-    if (!user) return alert('Vui long dang nhap!');
+    if (!user) return alert('Vui lòng đăng nhập!');
     if (!newComment.trim() && !selectedGifUrl) return;
     if (selectedGifSize && selectedGifSize > 2 * 1024 * 1024) {
       alert('GIF lớn hơn 2MB, vui lòng chọn GIF nhỏ hơn.');
@@ -1231,7 +1244,8 @@ export default function ChapterReader() {
         return;
       }
       setSending(false);
-      throw e;
+      toastFromError(e, 'Không gửi được bình luận.');
+      return;
     }
     setNewComment('');
     setSelectedGifUrl(null);
@@ -1240,6 +1254,7 @@ export default function ChapterReader() {
     const cmRes = await getCommentsByStory(storyId);
     setComments(cmRes.data);
     setVisibleCount(5);
+    toast.success('Đã gửi bình luận.');
     setSending(false);
   };
 
@@ -1278,12 +1293,12 @@ export default function ChapterReader() {
     setGifLoading(false);
   };
 
-  if (loading) return <div className="loading"><div className="spinner" />Dang tai...</div>;
+  if (loading) return <div className="loading"><div className="spinner" />Đang tải...</div>;
   if (!chapter || !story) {
     return (
       <div className="container">
         <div className="card">
-          <p>{loadError || 'Khong tim thay chuong.'}</p>
+          <p>{loadError || 'Không tìm thấy chương.'}</p>
           <Link to={`/story/${storyId}`} className="btn btn-outline">Quay lai truyen</Link>
         </div>
       </div>
@@ -1295,7 +1310,7 @@ export default function ChapterReader() {
       <style>{`
         @keyframes fadeSlideIn {
           from { opacity: 0; transform: translateX(16px); }
-          to { opacity: 1; transform: translateX(0); }
+          thành { opacity: 1; transform: translateX(0); }
         }
 
         .chapter-reader-content--manga,
@@ -1538,10 +1553,10 @@ export default function ChapterReader() {
                 alignItems: 'center',
                 gap: '0.35rem',
               }}
-              title="Mo lai vi tri da bookmark"
+      title="Mở lại vị trí đã bookmark"
             >
               <BookmarkIcon filled className="story-detail-bookmark-icon" />
-              Vi tri da luu
+              Vị trí đã lưu
             </button>
           )}
           {!isManga && (
@@ -1549,7 +1564,7 @@ export default function ChapterReader() {
               onClick={handleReadingNoteToggle}
               style={{
                 background: showReadingNote ? 'var(--accent)' : 'var(--bg-card)',
-                color: showReadingNote ? '#fff' : 'var(--text-primary)',
+                color: showReadingNote ? 'var(--text-inverse)' : 'var(--text-primary)',
                 border: '1px solid var(--border)',
                 borderRadius: '6px',
                 padding: '0.35rem 0.65rem',
@@ -1557,9 +1572,9 @@ export default function ChapterReader() {
                 fontSize: '0.85rem',
                 flexShrink: 0,
               }}
-              title={showReadingNote ? 'Dong ghi chu cua ban' : 'Mo ghi chu cua ban'}
+              title={showReadingNote ? 'Đóng ghi chú cua ban' : 'Mở ghi chú cua ban'}
             >
-              {showReadingNote ? 'Dong ghi chu' : readingHistoryItem?.note ? 'Mo ghi chu' : 'Ghi chu'}
+              {showReadingNote ? 'Đóng ghi chú' : readingHistoryItem?.note ? 'Mở ghi chú' : 'Ghi chú'}
             </button>
           )}
           {isManga && (
@@ -1567,7 +1582,7 @@ export default function ChapterReader() {
               onClick={() => setShowPageCommentButtons((value) => !value)}
               style={{
                 background: showPageCommentButtons ? 'var(--accent)' : 'var(--bg-card)',
-                color: showPageCommentButtons ? '#fff' : 'var(--text-primary)',
+                color: showPageCommentButtons ? 'var(--text-inverse)' : 'var(--text-primary)',
                 border: '1px solid var(--border)',
                 borderRadius: '6px',
                 padding: '0.35rem 0.65rem',
@@ -1575,16 +1590,16 @@ export default function ChapterReader() {
                 fontSize: '0.85rem',
                 flexShrink: 0,
               }}
-              title={showPageCommentButtons ? 'An icon binh luan tren tung anh' : 'Hien icon binh luan tren tung anh'}
+              title={showPageCommentButtons ? 'Ẩn icon bình luận trên từng ảnh' : 'Hiện icon bình luận trên từng ảnh'}
             >
-              {showPageCommentButtons ? 'An icon BL' : 'Hien icon BL'}
+              {showPageCommentButtons ? 'Ẩn icon BL' : 'Hiện icon BL'}
             </button>
           )}
           <button
             onClick={() => setShowBookmarkButtons((value) => !value)}
             style={{
               background: showBookmarkButtons ? 'var(--accent)' : 'var(--bg-card)',
-              color: showBookmarkButtons ? '#fff' : 'var(--text-primary)',
+              color: showBookmarkButtons ? 'var(--text-inverse)' : 'var(--text-primary)',
               border: '1px solid var(--border)',
               borderRadius: '6px',
               padding: '0.35rem 0.65rem',
@@ -1592,16 +1607,16 @@ export default function ChapterReader() {
               fontSize: '0.85rem',
               flexShrink: 0,
             }}
-            title={showBookmarkButtons ? 'An bookmark khi doc' : 'Hien bookmark khi doc'}
+            title={showBookmarkButtons ? 'Ẩn bookmark khi đọc' : 'Hiện bookmark khi đọc'}
           >
-            {showBookmarkButtons ? 'An bookmark' : 'Hien bookmark'}
+            {showBookmarkButtons ? 'Ẩn bookmark' : 'Hiện bookmark'}
           </button>
           {!isManga && (
             <button
               onClick={() => setShowSettings(!showSettings)}
               style={{
                 background: showSettings ? 'var(--accent)' : 'var(--bg-card)',
-                color: 'var(--text-primary)',
+                color: showSettings ? 'var(--text-inverse)' : 'var(--text-primary)',
                 border: '1px solid var(--border)',
                 borderRadius: '6px',
                 padding: '0.35rem 0.65rem',
@@ -1624,8 +1639,8 @@ export default function ChapterReader() {
             padding: '0.9rem 1rem',
             borderBottom: '1px solid var(--border)',
             background: missionUpdate.completedNow
-              ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.14), rgba(108, 99, 255, 0.12))'
-              : 'rgba(108, 99, 255, 0.08)',
+              ? 'linear-gradient(135deg, var(--warning-bg), var(--accent-bg))'
+              : 'var(--accent-soft)',
           }}
         >
           <div
@@ -1644,7 +1659,7 @@ export default function ChapterReader() {
                   : `Tien do hom nay: ${missionUpdate.progressCount}/${missionUpdate.target} chuong`}
               </strong>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
-                Streak hien tai {missionUpdate.streak} ngay
+                Streak hiện tại {missionUpdate.streak} ngày
                 {missionUpdate.unlockedBadgeIds?.length
                   ? ` | Badge moi: ${missionUpdate.unlockedBadgeIds.length}`
                   : ''}
@@ -1664,7 +1679,7 @@ export default function ChapterReader() {
             position: 'fixed',
             inset: 0,
             zIndex: 140,
-            background: 'rgba(2, 6, 23, 0.7)',
+            background: 'rgba(0, 0, 0, 0.7)',
             backdropFilter: 'blur(10px)',
             display: 'flex',
             alignItems: 'center',
@@ -1680,9 +1695,9 @@ export default function ChapterReader() {
               width: 'min(760px, 100%)',
               maxHeight: 'min(78vh, 720px)',
               overflow: 'auto',
-              background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.94))',
-              border: '1px solid rgba(96, 165, 250, 0.16)',
-              boxShadow: '0 28px 80px rgba(15, 23, 42, 0.5)',
+              background: 'linear-gradient(180deg, var(--bg-card), var(--bg-secondary))',
+              border: '1px solid var(--accent-border)',
+              boxShadow: 'var(--shadow)',
             }}
           >
             <div
@@ -1697,10 +1712,10 @@ export default function ChapterReader() {
             >
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
-                  Ghi chu truyen
+                  Ghi chú truyen
                 </h3>
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Ghi chu se duoc luu theo truyen va mo lai khi ban doc tiep.
+                  Ghi ch? s? ???c l?u theo truy?n v? m? l?i khi b?n Đọc tiếp.
                 </p>
               </div>
               <button className="btn btn-outline" onClick={() => setShowReadingNote(false)}>
@@ -1713,15 +1728,15 @@ export default function ChapterReader() {
               value={readingNote}
               onChange={(event) => setReadingNote(event.target.value)}
               onBlur={handleReadingNoteBlur}
-              placeholder="Nhap ghi chu cho truyen nay..."
+              placeholder="Nhập ghi chú cho truyện này..."
               rows={8}
               style={{
                 width: '100%',
                 resize: 'vertical',
                 minHeight: '220px',
                 whiteSpace: 'pre-wrap',
-                background: 'rgba(2, 6, 23, 0.88)',
-                borderColor: 'rgba(96, 165, 250, 0.12)',
+                background: 'var(--bg-primary)',
+                borderColor: 'var(--border)',
               }}
             />
 
@@ -1736,7 +1751,7 @@ export default function ChapterReader() {
               }}
             >
               <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                {noteStatus || 'Ghi chu duoc tu dong luu khi ban dung go.'}
+                {noteStatus || 'Ghi chú được tự động lưu khi bạn dừng gõ.'}
               </span>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <button
@@ -1744,14 +1759,14 @@ export default function ChapterReader() {
                   onClick={() => setReadingNote('')}
                   disabled={noteSaving || !readingNote.trim()}
                 >
-                  Xoa ghi chu
+                  Xóa ghi chú
                 </button>
                 <button
                   className="btn btn-primary"
                   onClick={() => persistReadingNote(readingNote)}
                   disabled={noteSaving}
                 >
-                  {noteSaving ? 'Dang luu...' : 'Luu ngay'}
+                  {noteSaving ? 'Đang lưu...' : 'Luu ngày'}
                 </button>
               </div>
             </div>
@@ -1800,7 +1815,7 @@ export default function ChapterReader() {
 
       {/* Chapter Title */}
       <div className="chapter-reader-title" style={{ textAlign: 'center', padding: '1.5rem 1rem 0.5rem', color: 'var(--text-primary)' }}>
-        <h2 style={{ fontSize: '1.3rem', fontWeight: 700 }}>Chuong {chapter.chapterNumber}: {chapter.title}</h2>
+        <h2 style={{ fontSize: '1.3rem', fontWeight: 700 }}>Chương {chapter.chapterNumber}: {chapter.title}</h2>
         <span style={{
           padding: '0.15rem 0.5rem',
           borderRadius: '4px',
@@ -1808,7 +1823,7 @@ export default function ChapterReader() {
           fontWeight: 700,
           background: isManga ? 'var(--badge-manga-bg)' : 'var(--badge-novel-bg)',
           color: isManga ? 'var(--warning)' : 'var(--accent)',
-        }}>{isManga ? 'Truyen Tranh' : 'Light Novel'}</span>
+        }}>{isManga ? 'Truyện Tranh' : 'Light Novel'}</span>
       </div>
 
       {/* Content */}
@@ -1852,7 +1867,7 @@ export default function ChapterReader() {
             ) : (
               <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
                 <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎨</div>
-                <p>Chuong nay chua co hinh anh.</p>
+                <p>Ch??ng n?y ch?a c? h?nh ảnh.</p>
               </div>
             )}
           </div>
@@ -1897,7 +1912,7 @@ export default function ChapterReader() {
                         type="button"
                         className={`story-bookmark-btn ${bookmarked ? 'active' : ''}`}
                         aria-pressed={bookmarked}
-                        title={bookmarked ? `Bo bookmark doan ${paragraphIndex + 1}` : `Bookmark doan ${paragraphIndex + 1}`}
+                        title={bookmarked ? `Bỏ bookmark đoạn ${paragraphIndex + 1}` : `Bookmark đoạn ${paragraphIndex + 1}`}
                         disabled={isProcessing(storyId, chapterId, null, paragraphIndex)}
                         style={{
                           top: '0.1rem',
@@ -1927,14 +1942,14 @@ export default function ChapterReader() {
                           fontWeight: 600,
                         }}
                       >
-                        Da luu doan {paragraphIndex + 1}
+                        Đã lưu đoạn {paragraphIndex + 1}
                       </div>
                     )}
                   </div>
                 );
               })
             ) : (
-              'Chuong nay chua co noi dung.'
+              'Chương này chưa có nội dung.'
             )}
           </div>
         )}
@@ -1943,23 +1958,23 @@ export default function ChapterReader() {
       {/* Bottom Navigation */}
       <div className="chapter-reader-bottomnav" style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', padding: '1.5rem', flexWrap: 'wrap' }}>
         {prevChapter && (
-          <Link to={`/story/${storyId}/chapter/${prevChapter.id}`} className="btn btn-outline" style={{ minWidth: '140px', textAlign: 'center' }}>← Chuong truoc</Link>
+          <Link to={`/story/${storyId}/chapter/${prevChapter.id}`} className="btn btn-outline" style={{ minWidth: '140px', textAlign: 'center' }}>← Chương trước</Link>
         )}
-        <Link to={`/story/${storyId}`} className="btn btn-outline">📚 Danh sach</Link>
+        <Link to={`/story/${storyId}`} className="btn btn-outline">📚 Danh sách</Link>
         {nextChapter && (
-          <Link to={`/story/${storyId}/chapter/${nextChapter.id}`} className="btn btn-primary" style={{ minWidth: '140px', textAlign: 'center' }}>Chuong tiep →</Link>
+          <Link to={`/story/${storyId}/chapter/${nextChapter.id}`} className="btn btn-primary" style={{ minWidth: '140px', textAlign: 'center' }}>Chương tiếp →</Link>
         )}
       </div>
 
       {/* Comments */}
       <div className="chapter-reader-comments" style={{ maxWidth: '750px', margin: '0 auto', padding: '1rem' }}>
         <div className="card">
-          <h3>💬 Binh luan truyen ({visibleComments.length})</h3>
+          <h3>💬 Bình luận truyện ({visibleComments.length})</h3>
           <div className="chapter-comment-toolbar" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.75rem' }}>
             <input
               className="form-control"
               style={{ flex: 1 }}
-              placeholder="Viet binh luan..."
+              placeholder="Viết bình luận..."
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleComment()}
@@ -1978,12 +1993,12 @@ export default function ChapterReader() {
             >
               GIF
             </button>
-            <button className="btn btn-primary" onClick={handleComment} disabled={sending}>Gui</button>
+            <button className="btn btn-primary" onClick={handleComment} disabled={sending}>Gửi</button>
           </div>
           {selectedGifUrl && (
             <div className="chapter-gif-preview" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
               <img src={selectedGifUrl} alt="gif" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: '8px' }} />
-              <button className="btn btn-outline" onClick={() => { setSelectedGifUrl(null); setSelectedGifSize(null); }}>Xoa GIF</button>
+              <button className="btn btn-outline" onClick={() => { setSelectedGifUrl(null); setSelectedGifSize(null); }}>Xóa GIF</button>
             </div>
           )}
           {showGifPicker && (
@@ -1991,7 +2006,7 @@ export default function ChapterReader() {
               <div className="chapter-gif-search" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 <input
                   className="form-control"
-                  placeholder="Tim GIF..."
+                  placeholder="Tìm GIF..."
                   value={gifSearch}
                   onChange={(e) => {
                     const value = e.target.value;
@@ -2000,10 +2015,10 @@ export default function ChapterReader() {
                     setGifSearch(value);
                   }}
                 />
-                <button className="btn btn-outline" onClick={() => searchGifs(gifSearch)}>Tim</button>
+                <button className="btn btn-outline" onClick={() => searchGifs(gifSearch)}>Tìm</button>
               </div>
               {gifError && <p style={{ color: 'var(--warning)', margin: '0 0 0.4rem 0' }}>{gifError}</p>}
-              {gifLoading && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Dang tai GIF...</p>}
+              {gifLoading && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>?ang t?i GIF...</p>}
               {!gifLoading && !gifError && (
                 <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
                   {['funny', 'meme', 'wow', 'sad', 'celebrate', 'cute'].map((tag) => (
@@ -2054,27 +2069,41 @@ export default function ChapterReader() {
                     />
                   </div>
                 ))}
-                {!gifLoading && gifResults.length === 0 && gifSearch && <p style={{ color: 'var(--text-secondary)' }}>Khong tim thay GIF.</p>}
+                {!gifLoading && gifResults.length === 0 && gifSearch && <p style={{ color: 'var(--text-secondary)' }}>Không tìm thấy GIF.</p>}
               </div>
             </div>
           )}
           {visibleComments.slice(0, visibleCount).map((c) => (
             <div key={c.id} style={{ padding: '0.8rem', borderBottom: '1px solid var(--border)', marginBottom: '0.4rem' }}>
-              <div className="chapter-comment-item-header" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.25rem' }}>
-                <strong style={{ color: 'var(--accent)', fontSize: '0.9rem' }}>{c.username || 'An danh'}</strong>
-                {c.chapterNumber && (
-                  <span style={{
-                    background: 'var(--bg-card)',
-                    color: 'var(--accent)',
-                    borderRadius: '999px',
-                    padding: '0.1rem 0.55rem',
-                    fontSize: '0.72rem',
-                    border: '1px solid var(--border)'
-                  }}>
-                    Chuong {c.chapterNumber}
-                  </span>
-                )}
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{new Date(c.createdAt).toLocaleString('vi-VN')}</span>
+              <div
+                className="chapter-comment-item-header"
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem',
+                  alignItems: 'center',
+                  marginBottom: '0.35rem',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <CommentIdentity comment={c} />
+                  {c.chapterNumber && (
+                    <span style={{
+                      background: 'var(--bg-card)',
+                      color: 'var(--accent)',
+                      borderRadius: '999px',
+                      padding: '0.1rem 0.55rem',
+                      fontSize: '0.72rem',
+                      border: '1px solid var(--border)'
+                    }}>
+                      Chương {c.chapterNumber}
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                  {new Date(c.createdAt).toLocaleString('vi-VN')}
+                </span>
               </div>
               {c.content && (
                 <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{c.content}</p>
@@ -2114,7 +2143,7 @@ export default function ChapterReader() {
               Xem thêm ({visibleComments.length - visibleCount})
             </button>
           )}
-          {visibleComments.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Chua co binh luan nao cho truyen nay.</p>}
+          {visibleComments.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Chưa có bình luận nào cho truyện này.</p>}
         </div>
       </div>
     </div>

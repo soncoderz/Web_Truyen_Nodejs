@@ -99,7 +99,7 @@ export default function Header() {
     <header className="header">
       <div className="header-inner">
         <Link to="/" className="logo">
-          TruyenHub
+          TruyệnHub
         </Link>
 
         <button className="hamburger" onClick={() => setMobileOpen((value) => !value)}>
@@ -114,14 +114,14 @@ export default function Header() {
             className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}
             onClick={() => setMobileOpen(false)}
           >
-            Trang chu
+            Trang chủ
           </Link>
           <Link
             to="/stories"
             className={`nav-link ${location.pathname === '/stories' ? 'active' : ''}`}
             onClick={() => setMobileOpen(false)}
           >
-            Danh sach truyen
+            Danh sách truyện
           </Link>
           {user && (
             <Link
@@ -129,7 +129,7 @@ export default function Header() {
               className={`nav-link ${location.pathname === '/studio' ? 'active' : ''}`}
               onClick={() => setMobileOpen(false)}
             >
-              Dang truyen
+              Đăng truyện
             </Link>
           )}
           {isAdmin() && (
@@ -138,7 +138,7 @@ export default function Header() {
               className={`nav-link ${location.pathname === '/admin' ? 'active' : ''}`}
               onClick={() => setMobileOpen(false)}
             >
-              Quan tri
+              Quản trị
             </Link>
           )}
         </nav>
@@ -147,14 +147,14 @@ export default function Header() {
           <div ref={themeRef} className="theme-switcher">
             <button
               className="btn-icon"
-              title="Doi mau giao dien"
+              title="Đổi màu giao diện"
               onClick={() => setShowTheme((value) => !value)}
             >
               🎨
             </button>
             {showTheme && (
               <div className="theme-dropdown">
-                <div className="theme-title">Chon giao dien</div>
+                <div className="theme-title">Chọn giao diện</div>
                 {Object.entries(themes).map(([key, preset]) => (
                   <button
                     key={key}
@@ -190,15 +190,15 @@ export default function Header() {
                   title={
                     missionSummary
                       ? missionSummary.completed
-                        ? 'Nhiem vu hom nay da hoan thanh'
-                        : `Nhiem vu hom nay: ${missionSummary.progressCount}/${missionSummary.target}`
-                      : 'Nhiem vu hang ngay'
+                        ? 'Nhiệm vụ hôm nay đã hoàn thành'
+                        : `Nhiệm vụ hôm nay: ${missionSummary.progressCount}/${missionSummary.target}`
+                      : 'Nhiệm vụ hằng ngày'
                   }
                   style={
                     isRewardsActive
                       ? {
                           color: 'var(--accent)',
-                          background: 'rgba(108, 99, 255, 0.12)',
+                          background: 'var(--accent-bg)',
                           borderColor: 'var(--accent-border)',
                         }
                       : undefined
@@ -212,7 +212,7 @@ export default function Header() {
                     )}
                 </Link>
                 <div className="mission-preview-dropdown">
-                  <div className="mission-preview-title">Nhiem vu hom nay</div>
+                  <div className="mission-preview-title">Nhiệm vụ hôm nay</div>
                   <div className="mission-preview-value">
                     {missionSummary
                       ? `${missionSummary.progressCount}/${missionSummary.target}`
@@ -220,15 +220,15 @@ export default function Header() {
                   </div>
                   <div className="mission-preview-meta">
                     {missionSummary?.completed
-                      ? 'Da hoan thanh va nhan thuong.'
-                      : `Con ${missionSummary?.remainingCount || 3} chuong de nhan xu.`}
+                      ? 'Đã hoàn thành và nhận thưởng.'
+                      : `Còn ${missionSummary?.remainingCount || 3} chương để nhận xu.`}
                   </div>
                   <div className="mission-preview-stats">
                     <span>Streak</span>
-                    <strong>{missionSummary?.streak || 0} ngay</strong>
+                    <strong>{missionSummary?.streak || 0} ngày</strong>
                   </div>
                   <div className="mission-preview-stats">
-                    <span>Xu hien co</span>
+                    <span>Xu hiện có</span>
                     <strong>{coinBalance.toLocaleString('vi-VN')}</strong>
                   </div>
                 </div>
@@ -253,7 +253,7 @@ export default function Header() {
                       <strong style={{ fontSize: '0.9rem' }}>Thong bao</strong>
                       {unreadCount > 0 && (
                         <button className="btn btn-sm btn-outline" onClick={handleMarkAll}>
-                          Doc tat ca
+                          Đọc tất cả
                         </button>
                       )}
                     </div>
@@ -265,7 +265,7 @@ export default function Header() {
                           color: 'var(--text-secondary)',
                         }}
                       >
-                        Khong co thong bao
+                        Không có thông báo
                       </div>
                     ) : (
                       notifications.slice(0, 20).map((notification) => (
@@ -302,7 +302,7 @@ export default function Header() {
                 {showMenu && (
                   <div className="user-dropdown">
                     <Link to="/studio" onClick={() => setShowMenu(false)}>
-                      Dang truyen
+                      Đăng truyện
                     </Link>
                     <Link to="/profile" onClick={() => setShowMenu(false)}>
                       Ho so
@@ -311,12 +311,12 @@ export default function Header() {
                       Bookmark
                     </Link>
                     <Link to="/profile?tab=history" onClick={() => setShowMenu(false)}>
-                      Lich su doc
+                      Lịch sử đọc
                     </Link>
                     <Link to="/profile?tab=rewards" onClick={() => setShowMenu(false)}>
-                      Nhiem vu va skin
+                      Nhiệm vụ và skin
                     </Link>
-                    <button onClick={handleLogout}>Dang xuat</button>
+                    <button onClick={handleLogout}>Đăng xuất</button>
                   </div>
                 )}
               </div>
@@ -324,10 +324,10 @@ export default function Header() {
           ) : (
             <>
               <Link to="/login" className="btn btn-outline btn-sm">
-                Dang nhap
+                Đăng nhập
               </Link>
               <Link to="/register" className="btn btn-primary btn-sm">
-                Dang ky
+                Đăng ký
               </Link>
             </>
           )}

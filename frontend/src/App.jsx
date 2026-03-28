@@ -12,15 +12,18 @@ import StoryList from './pages/StoryList';
 import StoryDetail from './pages/StoryDetail';
 import ChapterReader from './pages/ChapterReader';
 import Profile from './pages/Profile';
+import UserProfile from './pages/UserProfile';
 import Admin from './pages/Admin';
 import Statistics from './pages/Statistics';
 import CreatorStudio from './pages/CreatorStudio';
+import ToastViewport from './components/ToastViewport';
 
 function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <Router>
+          <ToastViewport />
           <Header />
           <main style={{ minHeight: 'calc(100vh - 130px)' }}>
             <Routes>
@@ -33,6 +36,7 @@ function App() {
               <Route path="/story/:id" element={<StoryDetail />} />
               <Route path="/story/:storyId/chapter/:chapterId" element={<ChapterReader />} />
               <Route path="/profile" element={<Profile />} />
+              <Route path="/users/:id" element={<UserProfile />} />
               <Route path="/studio" element={<CreatorStudio />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="/admin/statistics" element={<Statistics />} />

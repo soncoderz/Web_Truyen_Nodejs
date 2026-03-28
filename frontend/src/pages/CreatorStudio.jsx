@@ -16,6 +16,7 @@ import {
   uploadImage,
   uploadMangaPages,
 } from "../services/api";
+import { toast, toastFromError } from "../services/toast";
 
 const APPROVAL_LABELS = {
   PENDING: "Chờ duyệt",
@@ -115,6 +116,7 @@ export default function CreatorStudio() {
       }
     } catch (error) {
       console.error(error);
+      toastFromError(error, "Không tải được dữ liệu phòng đăng truyện.");
     } finally {
       setLoading(false);
     }
@@ -149,9 +151,9 @@ export default function CreatorStudio() {
       setStoryForm((prev) => ({ ...prev, coverImage: response.data.url }));
     } catch (error) {
       if (error.response?.status === 401) {
-        alert("Phien dang nhap da het han hoac token khong hop le. Vui long dang nhap lai.");
+        alert("Phiên đăng nhập đã hết hạn hoặc token không hợp lệ. Vui lòng đăng nhập lại.");
       } else {
-        alert(error.response?.data?.message || error.message);
+        toastFromError(error, "Không tải được ảnh bìa.");
       }
     } finally {
       setCoverUploading(false);
@@ -161,12 +163,12 @@ export default function CreatorStudio() {
   const handleUploadMangaPages = async () => {
     if (!mangaFiles.length) return;
     setPagesUploading(true);
-    setUploadProgress(`Dang chuan bi upload ${mangaFiles.length} anh...`);
+    setUploadProgress(`Đang chuẩn bị upload ${mangaFiles.length} ảnh...`);
     try {
       const response = await uploadMangaPages(mangaFiles, {
         onBatchComplete: ({ batchIndex, totalBatches, uploadedCount, totalFiles }) => {
           setUploadProgress(
-            `Dang upload lo ${batchIndex + 1}/${totalBatches} (${uploadedCount}/${totalFiles} anh)...`,
+            `Đang upload lô ${batchIndex + 1}/${totalBatches} (${uploadedCount}/${totalFiles} ảnh)...`,
           );
         },
       });
@@ -175,7 +177,7 @@ export default function CreatorStudio() {
       if (mangaInputRef.current) {
         mangaInputRef.current.value = "";
       }
-      setUploadProgress(`Da upload ${response.data.urls.length} anh.`);
+      setUploadProgress(`Đã upload ${response.data.urls.length} ảnh.`);
     } catch (error) {
       const uploadedUrls = error.uploadedUrls || [];
       const remainingFiles = error.remainingFiles || [];
@@ -190,14 +192,15 @@ export default function CreatorStudio() {
       }
 
       if (error.response?.status === 401) {
-        setUploadProgress("Phien dang nhap da het han hoac token khong hop le. Vui long dang nhap lai roi upload anh.");
+        setUploadProgress("Phiên đăng nhập đã hết hạn hoặc token không hợp lệ. Vui lòng đăng nhập lại rồi upload ảnh.");
       } else if (uploadedUrls.length) {
         setUploadProgress(
-          `Da upload tam ${uploadedUrls.length} anh, con ${remainingFiles.length} anh chua len. ${error.response?.data?.message || error.message}`,
+          `Đã upload tạm ${uploadedUrls.length} ảnh, còn ${remainingFiles.length} ảnh chưa lên. ${error.response?.data?.message || error.message}`,
         );
       } else {
         setUploadProgress(error.response?.data?.message || error.message);
       }
+      toastFromError(error, "Không upload được ảnh manga.");
     } finally {
       setPagesUploading(false);
     }
@@ -212,12 +215,12 @@ export default function CreatorStudio() {
       }
       resetStoryForm();
       await loadData(selectedStoryId);
-      alert("Đã lưu truyện. Truyện đang chờ admin duyệt.");
+      toast.success("Đã lưu truyện. Truyện đang chờ admin duyệt.");
     } catch (error) {
       if (error.response?.status === 401) {
-        alert("Phien dang nhap da het han. Vui long dang nhap lai.");
+        alert("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
       } else {
-        alert(error.response?.data?.message || error.message);
+        toastFromError(error, "Không lưu được truyện.");
       }
     }
   };
@@ -237,8 +240,13 @@ export default function CreatorStudio() {
 
   const handleDeleteStory = async (storyId) => {
     if (!confirm("Xóa truyện này?")) return;
-    await deleteStory(storyId);
-    await loadData(selectedStoryId === storyId ? "" : selectedStoryId);
+    try {
+      await deleteStory(storyId);
+      await loadData(selectedStoryId === storyId ? "" : selectedStoryId);
+      toast.success("Đã xóa truyện.");
+    } catch (error) {
+      toastFromError(error, "Không xóa được truyện.");
+    }
   };
 
   const handleSaveChapter = async () => {
@@ -262,12 +270,12 @@ export default function CreatorStudio() {
 
       await loadData(selectedStoryId);
       resetChapterForm(payload.storyId);
-      alert("Đã lưu chương. Chương đang chờ admin duyệt.");
+      toast.success("Đã lưu chương. Chương đang chờ admin duyệt.");
     } catch (error) {
       if (error.response?.status === 401) {
-        alert("Phien dang nhap da het han. Vui long dang nhap lai.");
+        alert("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
       } else {
-        alert(error.response?.data?.message || error.message);
+        toastFromError(error, "Không lưu được chương.");
       }
     }
   };
@@ -286,8 +294,13 @@ export default function CreatorStudio() {
 
   const handleDeleteChapter = async (chapterId) => {
     if (!confirm("Xóa chương này?")) return;
-    await deleteChapter(chapterId);
-    await loadData(selectedStoryId);
+    try {
+      await deleteChapter(chapterId);
+      await loadData(selectedStoryId);
+      toast.success("Đã xóa chương.");
+    } catch (error) {
+      toastFromError(error, "Không xóa được chương.");
+    }
   };
 
   if (loading) {
@@ -421,7 +434,9 @@ export default function CreatorStudio() {
                       ? "var(--accent)"
                       : "var(--bg-glass)",
                     cursor: "pointer",
-                    color: "white",
+                    color: storyForm.categoryIds.includes(category.id)
+                      ? "var(--text-inverse)"
+                      : "var(--text-primary)",
                     fontSize: "0.8rem",
                   }}
                 >
@@ -454,7 +469,9 @@ export default function CreatorStudio() {
                       ? "var(--success)"
                       : "var(--bg-glass)",
                     cursor: "pointer",
-                    color: "white",
+                    color: storyForm.authorIds.includes(author.id)
+                      ? "var(--text-inverse)"
+                      : "var(--text-primary)",
                     fontSize: "0.8rem",
                   }}
                 >

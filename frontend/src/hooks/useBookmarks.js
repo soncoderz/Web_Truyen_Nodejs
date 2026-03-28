@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { addBookmark, deleteBookmark, getBookmarks } from '../services/api';
+import { toast, toastFromError } from '../services/toast';
 
 const makeBookmarkKey = (
   storyId,
@@ -174,6 +175,7 @@ export default function useBookmarks(user) {
           savedBookmark,
           ...prev.filter((bookmark) => bookmark.storyId !== storyId),
         ]);
+        toast.success('Đã lưu bookmark.');
         return {
           requiresAuth: false,
           bookmarked: true,
@@ -181,6 +183,7 @@ export default function useBookmarks(user) {
         };
       } catch (error) {
         console.error(error);
+        toastFromError(error, 'Không lưu được bookmark.');
         throw error;
       } finally {
         setProcessingKeys((prev) => prev.filter((value) => value !== key));
@@ -210,9 +213,11 @@ export default function useBookmarks(user) {
 
         await deleteBookmark(existingBookmark.id);
         setBookmarks((prev) => prev.filter((bookmark) => bookmark.storyId !== storyId));
+        toast.success('Đã xóa bookmark.');
         return { requiresAuth: false, removed: true };
       } catch (error) {
         console.error(error);
+        toastFromError(error, 'Không xóa được bookmark.');
         throw error;
       } finally {
         setProcessingKeys((prev) => prev.filter((value) => value !== key));
@@ -245,6 +250,7 @@ export default function useBookmarks(user) {
           setBookmarks((prev) =>
             prev.filter((bookmark) => bookmark.storyId !== storyId),
           );
+          toast.success('Đã xóa bookmark.');
           return { requiresAuth: false, bookmarked: false };
         }
 
@@ -261,6 +267,7 @@ export default function useBookmarks(user) {
           savedBookmark,
           ...prev.filter((bookmark) => bookmark.storyId !== storyId),
         ]);
+        toast.success('Đã lưu bookmark.');
         return {
           requiresAuth: false,
           bookmarked: true,
@@ -268,6 +275,7 @@ export default function useBookmarks(user) {
         };
       } catch (error) {
         console.error(error);
+        toastFromError(error, 'Không cập nhật được bookmark.');
         throw error;
       } finally {
         setProcessingKeys((prev) => prev.filter((value) => value !== key));

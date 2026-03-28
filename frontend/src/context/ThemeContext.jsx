@@ -1,6 +1,62 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
+const THEME_STORAGE_KEY = 'theme';
+const THEME_VERSION_KEY = 'theme-version';
+const THEME_VERSION = '2026-03-monochrome';
+
 const themePresets = {
+  monochrome: {
+    name: 'Monochrome Noir',
+    description: 'Den + trang + xam hien dai',
+    colors: ['#f5f5f5', '#8f8f8f', '#050505'],
+    css: {
+      '--bg-primary': '#050505',
+      '--bg-secondary': '#0d0d0f',
+      '--bg-card': '#151517',
+      '--bg-header': 'rgba(5,5,5,0.9)',
+      '--bg-glass': 'rgba(255,255,255,0.06)',
+      '--text-primary': '#f5f5f5',
+      '--text-secondary': '#a3a3a3',
+      '--accent': '#d4d4d4',
+      '--accent-hover': '#ffffff',
+      '--accent-strong': '#8f8f8f',
+      '--accent-glow': 'rgba(255,255,255,0.14)',
+      '--accent-bg': 'rgba(255,255,255,0.1)',
+      '--accent-border': 'rgba(255,255,255,0.2)',
+      '--accent-soft': 'rgba(255,255,255,0.08)',
+      '--accent-soft-2': 'rgba(255,255,255,0.04)',
+      '--badge-novel-bg': 'rgba(255,255,255,0.14)',
+      '--badge-manga-bg': 'rgba(163,163,163,0.2)',
+      '--success': '#c8c8c8',
+      '--warning': '#ededed',
+      '--danger': '#8c8c8c',
+      '--success-bg': 'rgba(255,255,255,0.1)',
+      '--warning-bg': 'rgba(255,255,255,0.14)',
+      '--danger-bg': 'rgba(140,140,140,0.18)',
+      '--success-border': 'rgba(255,255,255,0.2)',
+      '--warning-border': 'rgba(255,255,255,0.24)',
+      '--danger-border': 'rgba(140,140,140,0.28)',
+      '--border': 'rgba(255,255,255,0.1)',
+      '--text-h': '#ffffff',
+      '--text-inverse': '#0a0a0a',
+      '--social-bg': 'rgba(255,255,255,0.06)',
+      '--card-hover-shadow': '0 14px 40px rgba(0,0,0,0.45)',
+      '--section-strong-bg': '#09090b',
+      '--section-strong-card-bg': '#131316',
+      '--section-strong-border': 'rgba(255,255,255,0.08)',
+      '--section-strong-header-bg': 'rgba(255,255,255,0.05)',
+      '--section-strong-text': '#f5f5f5',
+      '--section-strong-muted': '#9d9d9d',
+      '--section-strong-highlight': '#f5f5f5',
+      '--rank-1-bg': '#f5f5f5',
+      '--rank-2-bg': '#cfcfcf',
+      '--rank-3-bg': '#9b9b9b',
+      '--rank-default-bg': 'rgba(255,255,255,0.12)',
+      '--rank-top-text': '#0a0a0a',
+      '--rank-default-text': 'rgba(255,255,255,0.72)',
+      '--shadow': '0 14px 42px rgba(0,0,0,0.55)',
+    },
+  },
   aurora: {
     name: 'Aurora Violet',
     description: 'Violet + blue glow',
@@ -275,8 +331,17 @@ const themePresets = {
 
 const ThemeContext = createContext();
 
+const THEME_TOKENS = [
+  ...new Set(
+    Object.values(themePresets).flatMap((preset) => Object.keys(preset.css))
+  ),
+];
+
 const applyTheme = (key) => {
-  const preset = themePresets[key] || themePresets.aurora;
+  const preset = themePresets[key] || themePresets.monochrome;
+  THEME_TOKENS.forEach((token) => {
+    document.documentElement.style.removeProperty(token);
+  });
   Object.entries(preset.css).forEach(([token, value]) => {
     document.documentElement.style.setProperty(token, value);
   });
@@ -285,13 +350,19 @@ const applyTheme = (key) => {
 
 export function ThemeProvider({ children }) {
   const [themeKey, setThemeKey] = useState(() => {
-    if (typeof window === 'undefined') return 'aurora';
-    return localStorage.getItem('theme') || 'aurora';
+    if (typeof window === 'undefined') return 'monochrome';
+    const storedVersion = localStorage.getItem(THEME_VERSION_KEY);
+    const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    if (storedVersion !== THEME_VERSION) {
+      return 'monochrome';
+    }
+    return storedTheme || 'monochrome';
   });
 
   useEffect(() => {
     applyTheme(themeKey);
-    localStorage.setItem('theme', themeKey);
+    localStorage.setItem(THEME_STORAGE_KEY, themeKey);
+    localStorage.setItem(THEME_VERSION_KEY, THEME_VERSION);
   }, [themeKey]);
 
   const value = useMemo(
