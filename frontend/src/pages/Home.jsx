@@ -502,7 +502,7 @@ function StoryCard({
   const isLicensedStory = Boolean(story?.licensed) && Number(story?.unlockPrice || 0) > 0;
 
   return (
-    <div className="story-card">
+    <article className={`story-card ${isLicensedStory ? 'licensed-story-card' : ''}`}>
       <button
         type="button"
         className={`story-bookmark-btn story-follow-btn ${bookmarked ? "active" : ""}`}
@@ -518,10 +518,7 @@ function StoryCard({
       >
         <HeartIcon filled={bookmarked} className="story-follow-icon" />
       </button>
-      <Link
-        to={`/story/${story.id}`}
-        style={{ textDecoration: "none", color: "inherit" }}
-      >
+      <Link to={`/story/${story.id}`} className="story-card-main-link">
         <div className="story-cover">
           {story.coverImage ? (
             <img
@@ -591,18 +588,6 @@ function StoryCard({
         </div>
       )}
 
-      {isLicensedStory && (
-        <div className="story-card-footer">
-          <div className="story-footer-left">
-            <span className="muted">Mua truyện de doc toan bo chuong</span>
-          </div>
-          <div className="story-actions">
-            <Link to={`/story/${story.id}`} className="btn btn-sm btn-primary">
-              Xem chi tiết
-            </Link>
-          </div>
-        </div>
-      )}
-    </div>
+    </article>
   );
 }
