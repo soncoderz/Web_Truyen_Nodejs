@@ -1,4 +1,5 @@
 const express = require("express");
+const Story = require("../models/story");
 const Notification = require("../models/notification");
 const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth } = require("../middleware/auth");
@@ -8,6 +9,41 @@ const httpError = require("../utils/httpError");
 
 const router = express.Router();
 
+async function enrichNotifications(notifications) {
+  const serializedNotifications = notifications.map(serializeDoc);
+  const storyIds = Array.from(
+    new Set(
+      serializedNotifications
+        .map((notification) => String(notification.storyId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (storyIds.length === 0) {
+    return serializedNotifications;
+  }
+
+  const stories = await Story.find({ _id: { $in: storyIds } })
+    .select({ _id: 1, title: 1, coverImage: 1 })
+    .lean();
+  const storyMap = new Map(
+    stories.map((story) => [String(story._id), serializeDoc(story)]),
+  );
+
+  return serializedNotifications.map((notification) => {
+    const story = storyMap.get(String(notification.storyId || "").trim());
+    if (!story) {
+      return notification;
+    }
+
+    return {
+      ...notification,
+      storyTitle: notification.storyTitle || story.title || "",
+      storyCoverImage: notification.storyCoverImage || story.coverImage || null,
+    };
+  });
+}
+
 router.get(
   "/",
   requireAuth,
@@ -16,7 +52,7 @@ router.get(
     const notifications = await Notification.find({ userId: user.id })
       .sort({ createdAt: -1 })
       .lean();
-    res.json(notifications.map(serializeDoc));
+    res.json(await enrichNotifications(notifications));
   }),
 );
 

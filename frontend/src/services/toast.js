@@ -24,17 +24,17 @@ function inferToastType(message) {
   const text = normalizeMessage(message).toLowerCase();
 
   if (
-    /(thành công|da |đã |đã |hoàn tất|hoan tat|đã gửi|da gui|đã lưu|da luu|đã xóa|da xoa)/i.test(text)
+    /(thĂ nh cĂ´ng|da |Ä‘Ă£ |Ä‘Ă£ |hoĂ n táº¥t|hoan tat|Ä‘Ă£ gá»­i|da gui|Ä‘Ă£ lÆ°u|da luu|Ä‘Ă£ xĂ³a|da xoa)/i.test(text)
   ) {
     return "success";
   }
 
-  if (/(vui lòng|vui long|hãy|hay|đăng nhập|dang nhap)/i.test(text)) {
+  if (/(vui lĂ²ng|vui long|hĂ£y|hay|Ä‘Äƒng nháº­p|dang nhap)/i.test(text)) {
     return "warning";
   }
 
   if (
-    /(lỗi|loi|không|khong|thất bại|that bai|hết hạn|het han|không thể|error|fail)/i.test(
+    /(lá»—i|loi|khĂ´ng|khong|tháº¥t báº¡i|that bai|háº¿t háº¡n|het han|khĂ´ng thá»ƒ|error|fail)/i.test(
       text,
     )
   ) {
@@ -64,7 +64,18 @@ function scheduleDismiss(id, duration) {
   timers.set(id, timer);
 }
 
-function pushToast({ message, type = "info", duration, title = "" }) {
+function pushToast({
+  message,
+  type = "info",
+  duration,
+  title = "",
+  actionLabel = "",
+  imageUrl = "",
+  imageAlt = "",
+  imageFallback = "",
+  onClick = null,
+  closeOnClick = true,
+}) {
   const text = normalizeMessage(message);
   if (!text) {
     return null;
@@ -76,6 +87,12 @@ function pushToast({ message, type = "info", duration, title = "" }) {
     type,
     title: title ? String(title).trim() : "",
     message: text,
+    actionLabel: actionLabel ? String(actionLabel).trim() : "",
+    imageUrl: imageUrl ? String(imageUrl).trim() : "",
+    imageAlt: imageAlt ? String(imageAlt).trim() : "",
+    imageFallback: imageFallback ? String(imageFallback).trim() : "",
+    onClick: typeof onClick === "function" ? onClick : null,
+    closeOnClick: closeOnClick !== false,
   };
 
   toastQueue = [...toastQueue, toastItem];
@@ -116,7 +133,7 @@ export function installAlertInterceptor() {
   };
 }
 
-export function toastFromError(error, fallbackMessage = "Có lỗi xảy ra.") {
+export function toastFromError(error, fallbackMessage = "CĂ³ lá»—i xáº£y ra.") {
   const message =
     error?.response?.data?.message ||
     error?.message ||
