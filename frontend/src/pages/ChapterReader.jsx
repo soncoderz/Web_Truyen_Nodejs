@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
 import { markChapterAsRead } from '../utils/readingStorage';
+import { repairMojibakeText } from '../utils/textRepair';
 import {
   createComment,
   deleteReaderNote,
@@ -916,8 +917,22 @@ export default function ChapterReader() {
   const prevChapter = currentIndex > 0 ? chapters[currentIndex - 1] : null;
   const nextChapter = currentIndex < chapters.length - 1 ? chapters[currentIndex + 1] : null;
   const isManga = story?.type === 'MANGA';
+  const displayStoryTitle = useMemo(
+    () => repairMojibakeText(story?.title || ''),
+    [story?.title],
+  );
+  const displayChapterTitle = useMemo(
+    () => repairMojibakeText(chapter?.title || ''),
+    [chapter?.title],
+  );
   const paragraphBlocks = useMemo(
-    () => (isManga ? [] : splitChapterContentIntoParagraphs(chapter?.content)),
+    () => (
+      isManga
+        ? []
+        : splitChapterContentIntoParagraphs(
+            repairMojibakeText(chapter?.content || ''),
+          )
+    ),
     [chapter?.content, isManga],
   );
   const targetPageIndex = Number.parseInt(searchParams.get('page') || '', 10);
@@ -1513,7 +1528,7 @@ export default function ChapterReader() {
         borderBottom: '1px solid var(--border)',
       }}>
         <Link className="chapter-reader-toplink" to={`/story/${storyId}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: '0.9rem', fontWeight: 600, flex: '1 1 260px', minWidth: 0, maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          ← {story.title}
+          ← {displayStoryTitle}
         </Link>
         <div className="chapter-reader-topcontrols" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', flex: '1 1 240px', minWidth: 0, maxWidth: '100%' }}>
           <select
@@ -1534,7 +1549,9 @@ export default function ChapterReader() {
             }}
           >
             {chapters.map((ch) => (
-              <option key={ch.id} value={ch.id}>Ch.{ch.chapterNumber}: {ch.title}</option>
+              <option key={ch.id} value={ch.id}>
+                {`Ch.${ch.chapterNumber}: ${repairMojibakeText(ch.title || '')}`}
+              </option>
             ))}
           </select>
           {currentStoryBookmark?.chapterId && (
@@ -1572,7 +1589,7 @@ export default function ChapterReader() {
                 fontSize: '0.85rem',
                 flexShrink: 0,
               }}
-              title={showReadingNote ? 'Đóng ghi chú cua ban' : 'Mở ghi chú cua ban'}
+              title={showReadingNote ? 'Đóng ghi chú của bạn' : 'Mở ghi chú của bạn'}
             >
               {showReadingNote ? 'Đóng ghi chú' : readingHistoryItem?.note ? 'Mở ghi chú' : 'Ghi chú'}
             </button>
@@ -1655,18 +1672,18 @@ export default function ChapterReader() {
             <div>
               <strong style={{ display: 'block', marginBottom: '0.2rem' }}>
                 {missionUpdate.completedNow
-                  ? `Nhiem vu hoan thanh. +${missionUpdate.rewardCoins} xu`
-                  : `Tien do hom nay: ${missionUpdate.progressCount}/${missionUpdate.target} chuong`}
+                  ? `Nhiệm vụ hoàn thành. +${missionUpdate.rewardCoins} xu`
+                  : `Tiến độ hôm nay: ${missionUpdate.progressCount}/${missionUpdate.target} chương`}
               </strong>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
                 Streak hiện tại {missionUpdate.streak} ngày
                 {missionUpdate.unlockedBadgeIds?.length
-                  ? ` | Badge moi: ${missionUpdate.unlockedBadgeIds.length}`
+                  ? ` | Badge mới: ${missionUpdate.unlockedBadgeIds.length}`
                   : ''}
               </span>
             </div>
             <button className="btn btn-sm btn-outline" onClick={() => setMissionUpdate(null)}>
-              Dong
+              Đóng
             </button>
           </div>
         </div>
@@ -1712,14 +1729,14 @@ export default function ChapterReader() {
             >
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
-                  Ghi chú truyen
+                  Ghi chú truyện
                 </h3>
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Ghi ch? s? ???c l?u theo truy?n v? m? l?i khi b?n Đọc tiếp.
+                  Ghi chú sẽ được lưu theo truyện và mở lại khi bạn đọc tiếp.
                 </p>
               </div>
               <button className="btn btn-outline" onClick={() => setShowReadingNote(false)}>
-                Dong
+                Đóng
               </button>
             </div>
 
@@ -1815,7 +1832,9 @@ export default function ChapterReader() {
 
       {/* Chapter Title */}
       <div className="chapter-reader-title" style={{ textAlign: 'center', padding: '1.5rem 1rem 0.5rem', color: 'var(--text-primary)' }}>
-        <h2 style={{ fontSize: '1.3rem', fontWeight: 700 }}>Chương {chapter.chapterNumber}: {chapter.title}</h2>
+        <h2 style={{ fontSize: '1.3rem', fontWeight: 700 }}>
+          {`Chương ${chapter.chapterNumber}: ${displayChapterTitle}`}
+        </h2>
         <span style={{
           padding: '0.15rem 0.5rem',
           borderRadius: '4px',
