@@ -1611,7 +1611,16 @@ tr:hover td {
   transform: translate(-50%, -50%);
   border-radius: 999px;
   background:
-    radial-gradient(circle at 50% 22%, rgba(255, 255, 255, 0.22), transparent 46%),
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.24), transparent 42%),
+    conic-gradient(
+      from 200deg,
+      rgba(255, 255, 255, 0.1),
+      rgba(255, 255, 255, 0),
+      var(--rank-frame-secondary),
+      rgba(255, 255, 255, 0.08),
+      var(--rank-frame-accent),
+      rgba(255, 255, 255, 0.1)
+    ),
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.18)),
     var(--rank-frame-bg);
   opacity: 0.66;
@@ -1850,37 +1859,47 @@ tr:hover td {
   opacity: 1;
   top: 50%;
   width: 40px;
-  height: 58px;
-  border-radius: 78% 22% 70% 30% / 88% 30% 70% 18%;
+  height: 68px;
+  clip-path: polygon(100% 0, 74% 12%, 60% 32%, 84% 38%, 56% 56%, 80% 62%, 40% 100%, 0 70%, 16% 40%, 0 10%);
 }
 
 .ranked-avatar-variant-winged .ranked-avatar-ornament-left {
-  left: 4px;
-  transform: translateY(-50%) rotate(-30deg);
+  left: 2px;
+  transform: translateY(-50%) rotate(-24deg);
 }
 
 .ranked-avatar-variant-winged .ranked-avatar-ornament-right {
-  right: 4px;
-  transform: translateY(-50%) scaleX(-1) rotate(-30deg);
+  right: 2px;
+  transform: translateY(-50%) scaleX(-1) rotate(-24deg);
 }
 
 .ranked-avatar-variant-winged .ranked-avatar-aux-left,
 .ranked-avatar-variant-winged .ranked-avatar-aux-right {
   opacity: 1;
   top: 50%;
-  width: 26px;
-  height: 42px;
-  border-radius: 74% 26% 72% 28% / 82% 34% 66% 18%;
+  width: 28px;
+  height: 48px;
+  clip-path: polygon(100% 0, 70% 18%, 52% 36%, 76% 44%, 44% 68%, 60% 100%, 0 72%, 14% 42%, 0 16%);
 }
 
 .ranked-avatar-variant-winged .ranked-avatar-aux-left {
   left: 18px;
-  transform: translateY(-50%) rotate(-20deg);
+  transform: translateY(-50%) rotate(-18deg);
 }
 
 .ranked-avatar-variant-winged .ranked-avatar-aux-right {
   right: 18px;
-  transform: translateY(-50%) scaleX(-1) rotate(-20deg);
+  transform: translateY(-50%) scaleX(-1) rotate(-18deg);
+}
+
+.ranked-avatar-variant-winged .ranked-avatar-ornament-top {
+  opacity: 1;
+  top: 10px;
+  left: 50%;
+  width: 50px;
+  height: 14px;
+  transform: translateX(-50%);
+  clip-path: polygon(0 100%, 20% 36%, 50% 0, 80% 36%, 100% 100%, 64% 72%, 50% 84%, 36% 72%);
 }
 
 .ranked-avatar-variant-winged .ranked-avatar-orb-bottom {
@@ -1958,9 +1977,8 @@ tr:hover td {
 .ranked-avatar-variant-mecha .ranked-avatar-ornament-right {
   opacity: 1;
   top: 50%;
-  width: 30px;
-  height: 62px;
-  border-radius: 10px;
+  width: 34px;
+  height: 68px;
 }
 
 .ranked-avatar-variant-tech .ranked-avatar-ornament-left,
@@ -2012,10 +2030,10 @@ tr:hover td {
 .ranked-avatar-variant-mecha .ranked-avatar-ornament-bottom {
   opacity: 1;
   left: 50%;
-  width: 42px;
-  height: 12px;
+  width: 46px;
+  height: 14px;
   transform: translateX(-50%);
-  border-radius: 8px;
+  clip-path: polygon(0 100%, 14% 0, 86% 0, 100% 100%, 76% 82%, 24% 82%);
 }
 
 .ranked-avatar-variant-tech .ranked-avatar-ornament-top,
@@ -2116,37 +2134,47 @@ tr:hover td {
   opacity: 1;
   top: 50%;
   width: 36px;
-  height: 60px;
-  border-radius: 100% 0 100% 0;
+  height: 66px;
+  clip-path: polygon(100% 0, 72% 8%, 46% 34%, 78% 42%, 56% 64%, 76% 72%, 40% 100%, 0 84%, 16% 42%, 0 18%);
 }
 
 .ranked-avatar-variant-verdant .ranked-avatar-ornament-left {
   left: 10px;
-  transform: translateY(-50%) rotate(-34deg);
+  transform: translateY(-50%) rotate(-28deg);
 }
 
 .ranked-avatar-variant-verdant .ranked-avatar-ornament-right {
   right: 10px;
-  transform: translateY(-50%) scaleX(-1) rotate(-34deg);
+  transform: translateY(-50%) scaleX(-1) rotate(-28deg);
 }
 
 .ranked-avatar-variant-verdant .ranked-avatar-aux-left,
 .ranked-avatar-variant-verdant .ranked-avatar-aux-right {
   opacity: 1;
   bottom: 14px;
-  width: 18px;
-  height: 30px;
-  border-radius: 100% 0 100% 0;
+  width: 20px;
+  height: 36px;
+  clip-path: polygon(100% 0, 72% 14%, 40% 42%, 70% 52%, 38% 100%, 0 72%, 8% 28%);
 }
 
 .ranked-avatar-variant-verdant .ranked-avatar-aux-left {
   left: 28px;
-  transform: rotate(-26deg);
+  transform: rotate(-24deg);
 }
 
 .ranked-avatar-variant-verdant .ranked-avatar-aux-right {
   right: 28px;
-  transform: scaleX(-1) rotate(-26deg);
+  transform: scaleX(-1) rotate(-24deg);
+}
+
+.ranked-avatar-variant-verdant .ranked-avatar-ornament-top {
+  opacity: 1;
+  top: 10px;
+  left: 50%;
+  width: 40px;
+  height: 12px;
+  transform: translateX(-50%);
+  clip-path: polygon(0 100%, 18% 44%, 50% 0, 82% 44%, 100% 100%, 72% 76%, 28% 76%);
 }
 
 .ranked-avatar-variant-verdant .ranked-avatar-ornament-bottom {
@@ -2171,28 +2199,28 @@ tr:hover td {
   opacity: 1;
   top: 50%;
   width: 32px;
-  height: 54px;
-  border-radius: 90% 10% 90% 10%;
+  height: 60px;
+  clip-path: polygon(100% 0, 76% 8%, 40% 36%, 66% 42%, 56% 56%, 82% 64%, 48% 100%, 0 78%, 10% 46%, 0 18%);
 }
 
 .ranked-avatar-variant-lunar .ranked-avatar-ornament-left {
   left: 16px;
-  transform: translateY(-50%) rotate(-40deg);
+  transform: translateY(-50%) rotate(-30deg);
 }
 
 .ranked-avatar-variant-lunar .ranked-avatar-ornament-right {
   right: 16px;
-  transform: translateY(-50%) scaleX(-1) rotate(-40deg);
+  transform: translateY(-50%) scaleX(-1) rotate(-30deg);
 }
 
 .ranked-avatar-variant-lunar .ranked-avatar-ornament-top {
   opacity: 1;
-  top: 10px;
+  top: 8px;
   left: 50%;
   width: 48px;
-  height: 12px;
+  height: 14px;
   transform: translateX(-50%);
-  clip-path: polygon(0 100%, 20% 26%, 50% 0, 80% 26%, 100% 100%);
+  clip-path: polygon(0 100%, 12% 36%, 50% 0, 88% 36%, 100% 100%, 70% 72%, 30% 72%);
 }
 
 .ranked-avatar-variant-lunar .ranked-avatar-orb-bottom {
@@ -2211,7 +2239,6 @@ tr:hover td {
 .ranked-avatar-variant-blossom .ranked-avatar-aux-left,
 .ranked-avatar-variant-blossom .ranked-avatar-aux-right {
   opacity: 1;
-  border-radius: 999px;
   background:
     radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.42), transparent 28%),
     linear-gradient(180deg, var(--rank-frame-secondary), var(--rank-frame-accent));
@@ -2220,9 +2247,10 @@ tr:hover td {
 .ranked-avatar-variant-blossom .ranked-avatar-ornament-top,
 .ranked-avatar-variant-blossom .ranked-avatar-ornament-bottom {
   left: 50%;
-  width: 26px;
-  height: 34px;
+  width: 30px;
+  height: 36px;
   transform: translateX(-50%);
+  clip-path: polygon(50% 0, 78% 22%, 100% 62%, 72% 100%, 28% 100%, 0 62%, 22% 22%);
 }
 
 .ranked-avatar-variant-blossom .ranked-avatar-ornament-top {
@@ -2236,9 +2264,10 @@ tr:hover td {
 .ranked-avatar-variant-blossom .ranked-avatar-ornament-left,
 .ranked-avatar-variant-blossom .ranked-avatar-ornament-right {
   top: 50%;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 32px;
   transform: translateY(-50%);
+  clip-path: polygon(50% 0, 78% 22%, 100% 62%, 72% 100%, 28% 100%, 0 62%, 22% 22%);
 }
 
 .ranked-avatar-variant-blossom .ranked-avatar-ornament-left {
@@ -2254,6 +2283,7 @@ tr:hover td {
   top: 18px;
   width: 24px;
   height: 24px;
+  clip-path: polygon(50% 0, 78% 22%, 100% 62%, 72% 100%, 28% 100%, 0 62%, 22% 22%);
 }
 
 .ranked-avatar-variant-blossom .ranked-avatar-aux-left {
