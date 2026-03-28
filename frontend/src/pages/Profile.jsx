@@ -1030,9 +1030,9 @@ export default function Profile() {
                   }}
                 >
                   <div>
-                    <h2 style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>Skin profile</h2>
+                    <h2 style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>Skin hồ sơ</h2>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                      Mua bang xu va equip ngày trong ho so.
+                      Mua bằng xu và trang bị ngay trong hồ sơ.
                     </p>
                   </div>
                   {activeProfileSkin && (
@@ -1055,7 +1055,7 @@ export default function Profile() {
                         <RankedAvatar
                           user={{ username: user.username, avatar: user.avatar }}
                           skin={skin}
-                          size="lg"
+                          size="md"
                           showRibbon
                         />
                         <div className="profile-skin-copy">
