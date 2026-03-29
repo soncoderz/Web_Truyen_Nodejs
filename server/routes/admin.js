@@ -8,11 +8,78 @@ const User = require("../models/user");
 const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth, requireRoles } = require("../middleware/auth");
 const { extractDbRefIds } = require("../utils/dbRefs");
+const { serializeDoc } = require("../utils/serialize");
 const { hydrateStories } = require("../services/hydrationService");
 
 const router = express.Router();
 
 router.use(requireAuth, requireRoles("ROLE_ADMIN"));
+
+async function hydrateAdminComments(comments) {
+  const serializedComments = (Array.isArray(comments) ? comments : []).map(serializeDoc);
+  const storyIds = Array.from(
+    new Set(
+      serializedComments
+        .map((comment) => String(comment.storyId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const chapterIds = Array.from(
+    new Set(
+      serializedComments
+        .map((comment) => String(comment.chapterId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const [stories, chapters] = await Promise.all([
+    storyIds.length > 0
+      ? Story.find({ _id: { $in: storyIds } })
+          .select({ _id: 1, title: 1 })
+          .lean()
+      : Promise.resolve([]),
+    chapterIds.length > 0
+      ? Chapter.find({ _id: { $in: chapterIds } })
+          .select({ _id: 1, title: 1, chapterNumber: 1 })
+          .lean()
+      : Promise.resolve([]),
+  ]);
+
+  const storyMap = new Map(stories.map((story) => [String(story._id), story]));
+  const chapterMap = new Map(
+    chapters.map((chapter) => [String(chapter._id), chapter]),
+  );
+
+  return serializedComments.map((comment) => {
+    const story = storyMap.get(String(comment.storyId || "").trim()) || null;
+    const chapter = chapterMap.get(String(comment.chapterId || "").trim()) || null;
+    const hasPageIndex =
+      comment.pageIndex !== null &&
+      comment.pageIndex !== undefined &&
+      Number.isInteger(Number(comment.pageIndex));
+    const scope =
+      hasPageIndex
+        ? "PAGE"
+        : comment.chapterId
+          ? "CHAPTER"
+          : "STORY";
+
+    return {
+      ...comment,
+      scope,
+      storyTitle: story?.title || null,
+      chapterTitle: chapter?.title || null,
+      chapterNumber:
+        Number.isFinite(Number(chapter?.chapterNumber ?? comment.chapterNumber))
+          ? Number(chapter?.chapterNumber ?? comment.chapterNumber)
+          : null,
+      preview: String(comment.content || comment.gifUrl || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 180),
+    };
+  });
+}
 
 router.get(
   "/stats",
@@ -137,6 +204,41 @@ router.get(
         { name: "User", value: userCount },
       ],
     });
+  }),
+);
+
+router.get(
+  "/comments",
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(200, Math.max(20, Number(req.query.limit) || 80));
+    const scope = String(req.query.scope || "ALL").trim().toUpperCase();
+    const keyword = String(req.query.q || "").trim();
+    const query = {};
+
+    if (scope === "STORY") {
+      query.chapterId = null;
+      query.pageIndex = null;
+    } else if (scope === "CHAPTER") {
+      query.chapterId = { $ne: null };
+      query.pageIndex = null;
+    } else if (scope === "PAGE") {
+      query.pageIndex = { $ne: null };
+    }
+
+    if (keyword) {
+      const regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      query.$or = [
+        { content: regex },
+        { username: regex },
+      ];
+    }
+
+    const comments = await Comment.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    res.json(await hydrateAdminComments(comments));
   }),
 );
 
