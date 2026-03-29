@@ -14,6 +14,7 @@ const api = axios.create({
 const MAX_SINGLE_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_MANGA_UPLOAD_BATCH_FILES = 8;
 const MAX_MANGA_UPLOAD_BATCH_BYTES = 20 * 1024 * 1024;
+const MAX_REMOTE_IMPORT_BATCH_IMAGES = 10;
 
 const hasIdParam = (value) =>
   value !== undefined &&
@@ -134,6 +135,7 @@ export const getChapter = (id, options = {}) =>
   });
 export const createChapter = (data) => api.post("/chapters", data);
 export const updateChapter = (id, data) => api.put(`/chapters/${id}`, data);
+export const generateChapterSummary = (id) => api.post(`/chapters/${id}/summary`);
 export const reviewChapter = (id, approvalStatus, reviewNote = "") =>
   api.put(`/chapters/${id}/approval`, { approvalStatus, reviewNote });
 export const deleteChapter = (id) => api.delete(`/chapters/${id}`);
@@ -325,6 +327,60 @@ export const uploadMangaPages = async (files, options = {}) => {
     error.totalFiles = fileList.length;
     throw error;
   }
+};
+
+export const scanRemoteMangaSource = ({ url, usePuppeteer = false }) =>
+  api.post("/admin/import/scan", { url, usePuppeteer });
+
+export const importRemoteMangaPages = async (sourceUrl, imageUrls, options = {}) => {
+  const normalizedSourceUrl = String(sourceUrl || "").trim();
+  const normalizedImages = Array.from(
+    new Set(
+      (Array.isArray(imageUrls) ? imageUrls : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const { onBatchComplete } = options;
+
+  if (!normalizedSourceUrl) {
+    throw new Error("Thieu URL nguon de import.");
+  }
+
+  if (!normalizedImages.length) {
+    return { data: { urls: [], failures: [] } };
+  }
+
+  const batches = [];
+  for (let index = 0; index < normalizedImages.length; index += MAX_REMOTE_IMPORT_BATCH_IMAGES) {
+    batches.push(normalizedImages.slice(index, index + MAX_REMOTE_IMPORT_BATCH_IMAGES));
+  }
+
+  const uploadedUrls = [];
+  const failures = [];
+
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+    const response = await api.post("/admin/import/manga-pages", {
+      sourceUrl: normalizedSourceUrl,
+      imageUrls: batches[batchIndex],
+    });
+
+    const batchUrls = response.data?.urls || [];
+    const batchFailures = response.data?.failures || [];
+    uploadedUrls.push(...batchUrls);
+    failures.push(...batchFailures);
+
+    onBatchComplete?.({
+      batchIndex,
+      totalBatches: batches.length,
+      uploadedCount: uploadedUrls.length,
+      totalImages: normalizedImages.length,
+      batchUrls,
+      batchFailures,
+    });
+  }
+
+  return { data: { urls: uploadedUrls, failures } };
 };
 
 export default api;

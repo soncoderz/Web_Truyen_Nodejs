@@ -6,6 +6,7 @@ const backendRoot = path.resolve(__dirname, "../..");
 const envCandidates = [
   path.join(backendRoot, ".env"),
   path.join(backendRoot, "server", ".env"),
+  path.join(backendRoot, "backend", ".env"),
 ];
 
 for (const envPath of envCandidates) {
@@ -41,9 +42,21 @@ function parseProperties(filePath) {
   return result;
 }
 
-const legacyProperties = parseProperties(
-  path.join(backendRoot, "src", "main", "resources", "application.properties"),
-);
+const legacyProperties = {
+  ...parseProperties(
+    path.join(backendRoot, "src", "main", "resources", "application.properties"),
+  ),
+  ...parseProperties(
+    path.join(
+      backendRoot,
+      "backend",
+      "src",
+      "main",
+      "resources",
+      "application.properties",
+    ),
+  ),
+};
 
 function pickValue(envKey, propertyKey, fallback = "") {
   const envValue = process.env[envKey];
@@ -51,9 +64,15 @@ function pickValue(envKey, propertyKey, fallback = "") {
     return envValue;
   }
 
+
+  const dottedEnvValue = process.env[propertyKey];
+  if (dottedEnvValue !== undefined && dottedEnvValue !== "") {
+    return dottedEnvValue;
+
   const propertyEnvValue = process.env[propertyKey];
   if (propertyEnvValue !== undefined && propertyEnvValue !== "") {
     return propertyEnvValue;
+
   }
 
   const propertyValue = legacyProperties[propertyKey];
@@ -62,6 +81,17 @@ function pickValue(envKey, propertyKey, fallback = "") {
   }
 
   return fallback;
+}
+
+function pickAnyEnvValue(envKeys = []) {
+  for (const envKey of envKeys) {
+    const envValue = process.env[envKey];
+    if (envValue !== undefined && envValue !== "") {
+      return envValue;
+    }
+  }
+
+  return "";
 }
 
 function parseBoolean(value, fallback = false) {
@@ -78,6 +108,10 @@ function parseInteger(value, fallback) {
 }
 
 const port = parseInteger(pickValue("PORT", "server.port", "8080"), 8080);
+const aiSummaryApiKey =
+  pickValue("AI_SUMMARY_API_KEY", "app.ai.summary.api-key") ||
+  pickAnyEnvValue(["GEMINI_API_KEY", "GOOGLE_API_KEY"]);
+const aiSummaryEnabledDefault = aiSummaryApiKey ? "true" : "false";
 
 const env = {
   nodeEnv: process.env.NODE_ENV || "development",
@@ -147,6 +181,43 @@ const env = {
     "momo.partnerName",
     "Web Tuyen Online",
   ),
+  aiSummary: {
+    enabled: parseBoolean(
+      pickValue("AI_SUMMARY_ENABLED", "app.ai.summary.enabled", aiSummaryEnabledDefault),
+      false,
+    ),
+    apiKey: aiSummaryApiKey,
+    baseUrl: pickValue(
+      "AI_SUMMARY_BASE_URL",
+      "app.ai.summary.base-url",
+      "https://generativelanguage.googleapis.com/v1beta",
+    ),
+    model: pickValue(
+      "AI_SUMMARY_MODEL",
+      "app.ai.summary.model",
+      "gemini-3-flash-preview",
+    ),
+    timeoutSeconds: parseInteger(
+      pickValue("AI_SUMMARY_TIMEOUT_SECONDS", "app.ai.summary.timeout-seconds", "40"),
+      40,
+    ),
+    maxContentChars: parseInteger(
+      pickValue("AI_SUMMARY_MAX_CONTENT_CHARS", "app.ai.summary.max-content-chars", "12000"),
+      12000,
+    ),
+    maxImageSamples: parseInteger(
+      pickValue("AI_SUMMARY_MAX_IMAGE_SAMPLES", "app.ai.summary.max-image-samples", "4"),
+      4,
+    ),
+    maxOutputChars: parseInteger(
+      pickValue("AI_SUMMARY_MAX_OUTPUT_CHARS", "app.ai.summary.max-output-chars", "420"),
+      420,
+    ),
+    maxImageBytes: parseInteger(
+      pickValue("AI_SUMMARY_MAX_IMAGE_BYTES", "app.ai.summary.max-image-bytes", "2097152"),
+      2097152,
+    ),
+  },
 };
 
 env.corsOriginPatterns = env.corsAllowedOriginPatterns
@@ -165,6 +236,9 @@ env.isMomoConfigured = Boolean(
     env.momoPartnerCode &&
     env.momoAccessKey &&
     env.momoSecretKey,
+);
+env.isAiSummaryConfigured = Boolean(
+  env.aiSummary?.enabled && env.aiSummary?.apiKey,
 );
 
 module.exports = env;

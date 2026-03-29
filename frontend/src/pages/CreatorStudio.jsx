@@ -172,7 +172,10 @@ export default function CreatorStudio() {
           );
         },
       });
-      setChapterForm((prev) => ({ ...prev, pages: [...prev.pages, ...response.data.urls] }));
+      setChapterForm((prev) => ({
+        ...prev,
+        pages: Array.from(new Set([...(prev.pages || []), ...(response.data.urls || [])])),
+      }));
       setMangaFiles([]);
       if (mangaInputRef.current) {
         mangaInputRef.current.value = "";
@@ -183,7 +186,10 @@ export default function CreatorStudio() {
       const remainingFiles = error.remainingFiles || [];
 
       if (uploadedUrls.length) {
-        setChapterForm((prev) => ({ ...prev, pages: [...prev.pages, ...uploadedUrls] }));
+        setChapterForm((prev) => ({
+          ...prev,
+          pages: Array.from(new Set([...(prev.pages || []), ...uploadedUrls])),
+        }));
         setMangaFiles(remainingFiles);
       }
 

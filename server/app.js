@@ -3,6 +3,7 @@ const express = require("express");
 const { corsOptions } = require("./config/cors");
 const { optionalAuth } = require("./middleware/auth");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
+const { requestLogger } = require("./utils/logger");
 
 function createApp() {
   const app = express();
@@ -11,6 +12,7 @@ function createApp() {
 
   app.use(express.json({ limit: "20mb" }));
   app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+  app.use(requestLogger);
   app.use(optionalAuth);
 
   app.get("/api/health", (_req, res) => {
@@ -33,6 +35,7 @@ function createApp() {
   app.use("/api/reactions", require("./routes/reactions"));
   app.use("/api/reports", require("./routes/reports"));
   app.use("/api/gifs", require("./routes/gifs"));
+  app.use("/api/admin/import", require("./routes/import"));
   app.use("/api/admin", require("./routes/admin"));
   app.use("/api/upload", require("./routes/upload"));
   app.use("/api/email", require("./routes/email"));
