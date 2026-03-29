@@ -11,6 +11,7 @@ import {
 } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import HeartIcon from "../components/HeartIcon";
+import HomeAiChatWidget from "../components/HomeAiChatWidget";
 import useFollowedStories from "../hooks/useFollowedStories";
 import { getReadChapters } from "../utils/readingStorage";
 
@@ -24,6 +25,13 @@ export default function Home() {
   const [categories, setCategories] = useState([]);
   const [chaptersMap, setChaptersMap] = useState({});
   const [hotTop10, setHotTop10] = useState(null);
+  const [isAiChatExpanded, setIsAiChatExpanded] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+
+    return window.localStorage.getItem("home-ai-chat-expanded") !== "false";
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -107,7 +115,11 @@ export default function Home() {
   };
 
   return (
-    <div className="container">
+    <>
+    <div
+      className="container"
+      style={{ paddingBottom: isAiChatExpanded ? "34rem" : "7rem" }}
+    >
       {/* Hero */}
       <div
         style={{
@@ -352,6 +364,8 @@ export default function Home() {
         </div>
       )}
     </div>
+    <HomeAiChatWidget onExpandedChange={setIsAiChatExpanded} />
+    </>
   );
 }
 

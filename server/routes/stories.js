@@ -29,6 +29,10 @@ const {
   normalizeCurrencyAmount,
   normalizePercent,
 } = require("../services/monetizationService");
+const {
+  buildAiStoryRecommendations,
+} = require("../services/storyAiRecommendationService");
+const { attachStoryChapterStats } = require("../services/storySignalService");
 const httpError = require("../utils/httpError");
 
 const router = express.Router();
@@ -620,6 +624,94 @@ router.get(
     res.json(
       relatedStories.filter((item) => canViewStory(item, req.user)),
     );
+  }),
+);
+
+router.get(
+  "/:id/ai-recommendations",
+  asyncHandler(async (req, res) => {
+    const limit = Math.max(1, Math.min(Number(req.query.limit || 6), 12));
+    const story = await Story.findById(req.params.id);
+    if (!story) {
+      return res.json([]);
+    }
+
+    const hydratedStory = await hydrateStory(story);
+    if (!canViewStory(hydratedStory, req.user)) {
+      return res.json([]);
+    }
+
+    const categoryIds = extractDbRefIds(story.categories)
+      .map((value) => toObjectId(value))
+      .filter(Boolean);
+    const authorIds = extractDbRefIds(story.authors)
+      .map((value) => toObjectId(value))
+      .filter(Boolean);
+    const targetedCandidateLimit = Math.max(limit * 14, 60);
+    const fallbackCandidateLimit = Math.max(limit * 20, 120);
+
+    const [
+      categoryMatchedStories,
+      authorMatchedStories,
+      candidateStories,
+      manuallyRelatedStories,
+    ] = await Promise.all([
+      categoryIds.length > 0
+        ? Story.find({
+            ...approvedStoryQuery(),
+            _id: { $ne: story._id },
+            "categories.$id": { $in: categoryIds },
+          })
+            .sort({ followers: -1, averageRating: -1, views: -1, updatedAt: -1 })
+            .limit(targetedCandidateLimit)
+            .lean()
+        : Promise.resolve([]),
+      authorIds.length > 0
+        ? Story.find({
+            ...approvedStoryQuery(),
+            _id: { $ne: story._id },
+            "authors.$id": { $in: authorIds },
+          })
+            .sort({ followers: -1, averageRating: -1, views: -1, updatedAt: -1 })
+            .limit(targetedCandidateLimit)
+            .lean()
+        : Promise.resolve([]),
+      Story.find({
+        ...approvedStoryQuery(),
+        _id: { $ne: story._id },
+      })
+        .sort({ followers: -1, averageRating: -1, views: -1, updatedAt: -1 })
+        .limit(fallbackCandidateLimit)
+        .lean(),
+      findStoriesByIds(story.relatedStoryIds || []),
+    ]);
+
+    const candidateMap = new Map();
+    manuallyRelatedStories.forEach((item) => {
+      candidateMap.set(String(item?._id || item?.id || ""), item);
+    });
+    authorMatchedStories.forEach((item) => {
+      candidateMap.set(String(item?._id || item?.id || ""), item);
+    });
+    categoryMatchedStories.forEach((item) => {
+      candidateMap.set(String(item?._id || item?.id || ""), item);
+    });
+    candidateStories.forEach((item) => {
+      candidateMap.set(String(item?._id || item?.id || ""), item);
+    });
+
+    const hydratedCandidates = await hydrateStories(Array.from(candidateMap.values()));
+    const visibleCandidates = hydratedCandidates.filter((item) =>
+      canViewStory(item, req.user),
+    );
+    const enrichedStories = await attachStoryChapterStats([
+      hydratedStory,
+      ...visibleCandidates,
+    ]);
+    const baseStory = enrichedStories.find((item) => item.id === hydratedStory.id) || hydratedStory;
+    const enrichedCandidates = enrichedStories.filter((item) => item.id !== hydratedStory.id);
+
+    res.json(buildAiStoryRecommendations(baseStory, enrichedCandidates, { limit }));
   }),
 );
 
