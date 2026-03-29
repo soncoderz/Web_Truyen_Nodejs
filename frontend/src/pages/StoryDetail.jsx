@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
+import CommentComposer from '../components/CommentComposer';
 import CommentIdentity from '../components/CommentIdentity';
 import { useAuth } from '../context/AuthContext';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
@@ -12,8 +13,6 @@ import {
 } from '../services/api';
 import { toast, toastFromError } from '../services/toast';
 import { calculateStoryCoinPrice } from '../utils/rewards';
-
-const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
 
 export default function StoryDetail() {
   const { id } = useParams();
@@ -28,15 +27,8 @@ export default function StoryDetail() {
   const [userRating, setUserRating] = useState(0);
   const [following, setFollowing] = useState(false);
   const [relatedStories, setRelatedStories] = useState([]);
-  const [newComment, setNewComment] = useState('');
-  const [selectedGifUrl, setSelectedGifUrl] = useState(null);
-  const [showGifPicker, setShowGifPicker] = useState(false);
-  const [gifSearch, setGifSearch] = useState('');
-  const [gifResults, setGifResults] = useState([]);
-  const [gifLoading, setGifLoading] = useState(false);
-  const [gifError, setGifError] = useState('');
   const [visibleCount, setVisibleCount] = useState(5);
-  const [selectedGifSize, setSelectedGifSize] = useState(null);
+  const [commentSending, setCommentSending] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [readingHistoryItem, setReadingHistoryItem] = useState(null);
@@ -323,31 +315,48 @@ export default function StoryDetail() {
     }
   };
 
-  const handleComment = async () => {
-    if (!user) return alert('Vui lòng đăng nhập!');
-    if (!newComment.trim() && !selectedGifUrl) return;
+  const handleComment = async ({ content, gifUrl, gifSize }) => {
+    const newComment = content || '';
+    const selectedGifUrl = gifUrl || null;
+    const selectedGifSize = gifSize || null;
+
+    if (!user) {
+      alert('Vui lòng đăng nhập!');
+      return false;
+    }
+
+    if (!newComment.trim() && !selectedGifUrl) {
+      return false;
+    }
+
     if (selectedGifSize && selectedGifSize > 2 * 1024 * 1024) {
       alert('GIF lớn hơn 2MB, vui lòng chọn GIF nhỏ hơn.');
-      return;
+      return false;
     }
+
     try {
-      await createComment({ storyId: id, content: newComment, gifUrl: selectedGifUrl || null, gifSize: selectedGifSize || null });
+      setCommentSending(true);
+      await createComment({
+        storyId: id,
+        content: newComment,
+        gifUrl: selectedGifUrl || null,
+        gifSize: selectedGifSize || null,
+      });
+      const cmRes = await getCommentsByStory(id);
+      setComments(cmRes.data);
+      setVisibleCount(5);
+      toast.success('Đã gửi bình luận.');
+      return true;
     } catch (e) {
       if (e?.response?.status === 401) {
         alert('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        return;
+        return false;
       }
       toastFromError(e, 'Không gửi được bình luận.');
-      return;
+      return false;
+    } finally {
+      setCommentSending(false);
     }
-    setNewComment('');
-    setSelectedGifUrl(null);
-    setSelectedGifSize(null);
-    setShowGifPicker(false);
-    const cmRes = await getCommentsByStory(id);
-    setComments(cmRes.data);
-    setVisibleCount(5);
-    toast.success('Đã gửi bình luận.');
   };
 
   const handleReport = async () => {
@@ -360,35 +369,6 @@ export default function StoryDetail() {
     } catch (error) {
       toastFromError(error, 'Không gửi được báo lỗi.');
     }
-  };
-
-  const loadTrendingGifs = async () => {
-    setGifError('');
-    setGifLoading(true);
-    try {
-      const res = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=12&rating=g`);
-      const data = await res.json();
-      setGifResults(data.data || []);
-    } catch (e) { console.error(e); setGifError('Không tải được GIF nổi bật.'); }
-    setGifLoading(false);
-  };
-
-  const searchGifs = async (keyword) => {
-    const q = keyword.trim();
-    if (q.startsWith('http') || q.length > 80) {
-      setGifError('Từ khóa quá dài hoặc là URL, hãy nhập ngắn hơn.');
-      setGifResults([]);
-      return;
-    }
-    setGifError('');
-    if (!q) return loadTrendingGifs();
-    setGifLoading(true);
-    try {
-      const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(q)}&limit=12&rating=g`);
-      const data = await res.json();
-      setGifResults(data.data || []);
-    } catch (e) { console.error(e); setGifError('Không tải được GIF.'); }
-    setGifLoading(false);
   };
 
   if (loading) return <div className="loading"><div className="spinner" />Đang tải...</div>;
@@ -677,76 +657,11 @@ export default function StoryDetail() {
       {/* Comments */}
       {tab === 'comments' && (
         <div className="card">
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-            <input className="form-control" style={{ flex: 1 }} placeholder="Viết bình luận... (có thể bình luận nhiều lần)" value={newComment} onChange={e => setNewComment(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleComment()} />
-            <button className="btn btn-outline" onClick={() => {
-              setShowGifPicker(v => !v);
-              if (!showGifPicker) { setGifResults([]); setGifSearch(''); loadTrendingGifs(); }
-            }}>GIF</button>
-            <button className="btn btn-primary" onClick={handleComment}>Gửi</button>
-          </div>
-          {selectedGifUrl && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
-              <img src={selectedGifUrl} alt="gif" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: '8px' }} />
-              <button className="btn btn-outline" onClick={() => setSelectedGifUrl(null)}>Xóa GIF</button>
-            </div>
-          )}
-          {showGifPicker && (
-            <div style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '0.75rem', marginBottom: '1rem', background: 'var(--bg-card)' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <input
-                  className="form-control"
-                  placeholder="Tìm GIF..."
-                  value={gifSearch}
-                  onChange={(e) => { setGifSearch(e.target.value); searchGifs(e.target.value); }}
-                />
-                <button className="btn btn-outline" onClick={() => searchGifs(gifSearch)}>Tìm</button>
-              </div>
-              {gifError && <p style={{ color: 'var(--warning)', margin: '0 0 0.4rem 0' }}>{gifError}</p>}
-              {gifLoading && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Đang tải GIF...</p>}
-              {!gifLoading && !gifError && (
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-                  {['funny', 'meme', 'wow', 'sad', 'celebrate', 'cute'].map((tag) => (
-                    <button
-                      key={tag}
-                      className="btn btn-outline"
-                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
-                      onClick={() => { setGifSearch(tag); searchGifs(tag); }}
-                    >
-                      #{tag}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '0.4rem', maxHeight: '260px', overflowY: 'auto' }}>
-                {gifResults.map(g => (
-                  <img
-                    key={g.id}
-                    src={g.images?.downsized?.url}
-                    alt={g.title}
-                    loading="lazy"
-                    style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '8px', cursor: 'pointer', border: selectedGifUrl === g.images?.downsized?.url ? '2px solid var(--accent)' : '1px solid var(--border)' }}
-                    onClick={() => {
-                      const size = parseInt(g.images?.downsized?.size || '0', 10);
-                      if (size > 2 * 1024 * 1024) {
-                        alert('GIF lớn hơn 2MB, chọn GIF khác.');
-                        return;
-                      }
-                      setSelectedGifUrl(g.images?.downsized?.url);
-                      setSelectedGifSize(size || null);
-                      setShowGifPicker(false);
-                    }}
-                    onError={(e) => {
-                      const fallback = g.images?.downsized?.url;
-                      if (fallback && e.target.src !== fallback) e.target.src = fallback;
-                    }}
-                  />
-                ))}
-                {!gifLoading && gifResults.length === 0 && gifSearch && <p style={{ color: 'var(--text-secondary)' }}>Không tìm thấy GIF.</p>}
-              </div>
-            </div>
-          )}
+          <CommentComposer
+            placeholder="Viết bình luận... (có thể bình luận nhiều lần)"
+            submitting={commentSending}
+            onSubmit={handleComment}
+          />
           {comments.length > 0 ? comments.slice(0, visibleCount).map(c => (
             <div key={c.id} style={{ padding: '0.75rem', borderBottom: '1px solid var(--border)', marginBottom: '0.5rem' }}>
               <div
@@ -784,6 +699,7 @@ export default function StoryDetail() {
                   src={c.gifUrl}
                   alt="gif"
                   loading="lazy"
+                  decoding="async"
                   style={{
                     marginTop: '0.35rem',
                     width: '180px',
