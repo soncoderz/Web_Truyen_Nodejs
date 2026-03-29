@@ -680,7 +680,7 @@ export default function Profile() {
           {tab === 'history' && (
             <div>
               {history.length > 0 ? (
-                <div className="story-grid">
+                <div className="story-grid profile-story-grid">
                   {history.map((item) => {
                     const story = storyCache[item.storyId];
                     const chapter = item.chapterId ? chapterCache[item.chapterId] : null;
@@ -774,7 +774,7 @@ export default function Profile() {
 
           {tab === 'following' &&
             (followedStories.length > 0 ? (
-              <div className="story-grid">
+              <div className="story-grid profile-story-grid">
                 {followedStories.map((story) => (
                   <FollowedStoryCard
                     key={story.id}
@@ -794,7 +794,7 @@ export default function Profile() {
 
           {tab === 'purchased' &&
             (purchasedStories.length > 0 ? (
-              <div className="story-grid">
+              <div className="story-grid profile-story-grid">
                 {purchasedStories.map((story) => (
                   <PurchasedStoryCard
                     key={story.id}
@@ -1123,7 +1123,7 @@ function FollowedStoryCard({ story, chapters, userId }) {
     : `/story/${story.id}`;
 
   return (
-    <div className="story-card">
+    <div className="story-card profile-story-card">
       <Link to={`/story/${story.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
         <div className="story-cover">
           {story.coverImage ? (
@@ -1158,7 +1158,7 @@ function FollowedStoryCard({ story, chapters, userId }) {
             <span>Đánh giá {story.averageRating || 0}</span>
           </div>
           {recentChapter && (
-            <div className="story-meta" style={{ marginTop: 6, fontSize: '0.82rem' }}>
+            <div className="story-meta profile-story-detail" style={{ marginTop: 6, fontSize: '0.82rem' }}>
               <strong>Ch.{recentChapter.chapterNumber}</strong> · {recentChapter.title}
             </div>
           )}
@@ -1184,7 +1184,7 @@ function FollowedStoryCard({ story, chapters, userId }) {
         </div>
       )}
 
-      <div className="story-card-footer">
+      <div className="story-card-footer profile-story-footer">
         <div className="story-footer-left">
           {recentChapter && (
             <span className="muted">
@@ -1192,7 +1192,7 @@ function FollowedStoryCard({ story, chapters, userId }) {
             </span>
           )}
         </div>
-        <div className="story-actions">
+        <div className="story-actions profile-story-actions">
           <Link to={actionHref} className="btn btn-sm btn-primary">
             {recentChapter ? `Đọc Ch.${recentChapter.chapterNumber}` : 'Xem truyện'}
           </Link>
@@ -1210,7 +1210,7 @@ function PurchasedStoryCard({ story, chapters, userId }) {
     : `/story/${story.id}`;
 
   return (
-    <div className="story-card">
+    <div className="story-card profile-story-card">
       <Link to={`/story/${story.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
         <div className="story-cover">
           {story.coverImage ? (
@@ -1246,7 +1246,7 @@ function PurchasedStoryCard({ story, chapters, userId }) {
             </span>
           </div>
           {recentChapter && (
-            <div className="story-meta" style={{ marginTop: 6, fontSize: '0.82rem' }}>
+            <div className="story-meta profile-story-detail" style={{ marginTop: 6, fontSize: '0.82rem' }}>
               <strong>Ch.{recentChapter.chapterNumber}</strong> - {recentChapter.title}
             </div>
           )}
@@ -1272,13 +1272,13 @@ function PurchasedStoryCard({ story, chapters, userId }) {
         </div>
       )}
 
-      <div className="story-card-footer">
+      <div className="story-card-footer profile-story-footer">
         <div className="story-footer-left">
           <span className="muted">
             {recentChapter ? `Cập nhật ${formatTimeAgo(recentChapter.createdAt)}` : 'Đã mở khóa'}
           </span>
         </div>
-        <div className="story-actions">
+        <div className="story-actions profile-story-actions">
           <Link to={actionHref} className="btn btn-sm btn-primary">
             {recentChapter ? `Đọc Ch.${recentChapter.chapterNumber}` : 'Đọc truyện'}
           </Link>
@@ -1311,7 +1311,7 @@ function LibraryStoryCard({
     typeof story?.averageRating === 'number';
 
   return (
-    <div className="story-card">
+    <div className="story-card profile-story-card profile-history-card">
       <Link
         to={hasStory ? `/story/${story.id}` : '#'}
         onClick={(event) => {
@@ -1376,24 +1376,24 @@ function LibraryStoryCard({
           )}
 
           {detailLabel ? (
-            <div className="story-meta" style={{ marginTop: 6, fontSize: '0.82rem' }}>
+            <div className="story-meta profile-story-detail" style={{ marginTop: 6, fontSize: '0.82rem' }}>
               <strong>{detailLabel}</strong>
             </div>
           ) : chapter && (
-            <div className="story-meta" style={{ marginTop: 6, fontSize: '0.82rem' }}>
+            <div className="story-meta profile-story-detail" style={{ marginTop: 6, fontSize: '0.82rem' }}>
               <strong>Ch.{chapter.chapterNumber}</strong> - {chapter.title}
             </div>
           )}
 
-          {note && <div className="story-note">{note}</div>}
+          {note && <div className="story-note profile-story-note">{note}</div>}
         </div>
       </Link>
 
-      <div className="story-card-footer">
+      <div className="story-card-footer profile-story-footer">
         <div className="story-footer-left">
           {timestampLabel && <span className="muted">{timestampLabel}</span>}
         </div>
-        <div className="story-actions">
+        <div className="story-actions profile-story-actions">
           {actionDisabled ? (
             <span className="btn btn-sm btn-outline btn-disabled">{actionLabel}</span>
           ) : (

@@ -1,25 +1,125 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
 import CommentIdentity from '../components/CommentIdentity';
+import ReactionBar from '../components/ReactionBar';
 import { useAuth } from '../context/AuthContext';
+import useReactionSummaries from '../hooks/useReactionSummaries';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
 import {
   getStory, getChaptersByStory, getCommentsByStory, getStoryRating, getUserRating,
   incrementViews, followStory, isFollowing, createComment, rateStory,
   createMomoTopUp, createReport, confirmMomoTopUp, getReadingHistoryByStory,
-  getRelatedStories, getWalletSummary, unlockLicensedStory
+  getRelatedStories, getWalletSummary, rentStory, supportAuthor, unlockChapter,
+  unlockChapterBundle, unlockLicensedStory
 } from '../services/api';
 import { toast, toastFromError } from '../services/toast';
+import {
+  REALTIME_EVENTS,
+  subscribeCommentTargets,
+  unsubscribeCommentTargets,
+} from '../services/realtime';
 import { calculateStoryCoinPrice } from '../utils/rewards';
+import { buildStoryReactionTarget } from '../utils/reactions';
 
 const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
+
+const SUPPORT_MIN_AMOUNT = 1000;
+
+function normalizeMoney(value) {
+  return Math.max(0, Number(value) || 0);
+}
+
+function roundBundlePrice(value) {
+  const amount = normalizeMoney(value);
+  if (!amount) {
+    return 0;
+  }
+  return Math.max(1000, Math.round(amount / 1000) * 1000);
+}
+
+function getActiveRentalEntry(entries, storyId) {
+  const now = Date.now();
+  return (Array.isArray(entries) ? entries : []).find((entry) => {
+    if (!entry?.storyId || String(entry.storyId) !== String(storyId)) {
+      return false;
+    }
+    const expiresAt = new Date(entry.expiresAt).getTime();
+    return Number.isFinite(expiresAt) && expiresAt > now;
+  }) || null;
+}
+
+function prependComment(list, comment) {
+  if (!comment?.id) {
+    return Array.isArray(list) ? list : [];
+  }
+
+  const nextList = (Array.isArray(list) ? list : []).filter(
+    (item) => String(item?.id || '') !== String(comment.id),
+  );
+  return [comment, ...nextList];
+}
+
+function removeComment(list, commentId) {
+  return (Array.isArray(list) ? list : []).filter(
+    (item) => String(item?.id || '') !== String(commentId || ''),
+  );
+}
+
+function buildBundleOffers(story, chapters, purchasedChapterIds) {
+  if (!story?.chapterBundleEnabled) {
+    return [];
+  }
+
+  const bundleSize = Math.max(2, Number(story.chapterBundleSize) || 3);
+  const discountPercent = Math.min(90, Math.max(0, Number(story.chapterBundleDiscountPercent) || 15));
+  const purchasedSet = new Set((Array.isArray(purchasedChapterIds) ? purchasedChapterIds : []).map(String));
+  const payableChapters = (Array.isArray(chapters) ? chapters : [])
+    .filter((chapter) => normalizeMoney(chapter?.accessPrice) > 0 && chapter?.accessMode && chapter.accessMode !== 'FREE')
+    .sort((left, right) => Number(left.chapterNumber || 0) - Number(right.chapterNumber || 0));
+
+  const offers = [];
+  for (let index = 0; index < payableChapters.length; index += bundleSize) {
+    const group = payableChapters.slice(index, index + bundleSize);
+    if (group.length < 2) {
+      continue;
+    }
+
+    const chapterIds = group.map((chapter) => chapter.id).filter(Boolean);
+    const originalPrice = group.reduce(
+      (sum, chapter) => sum + normalizeMoney(chapter.accessPrice),
+      0,
+    );
+    const price = roundBundlePrice(originalPrice * ((100 - discountPercent) / 100));
+    const unlockedCount = chapterIds.filter((chapterId) => purchasedSet.has(String(chapterId))).length;
+
+    offers.push({
+      id: `${story.id}:${chapterIds[0]}:${chapterIds[chapterIds.length - 1]}`,
+      title: `Combo Ch.${group[0].chapterNumber} - Ch.${group[group.length - 1].chapterNumber}`,
+      chapterIds,
+      chapters: group,
+      chapterCount: group.length,
+      originalPrice,
+      price,
+      discountPercent,
+      unlockedCount,
+      fullyOwned: unlockedCount >= chapterIds.length,
+    });
+  }
+
+  return offers;
+}
 
 export default function StoryDetail() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const storyReactionTarget = useMemo(() => buildStoryReactionTarget(id), [id]);
+  const { getSummary, loadingTarget, reactToTarget } = useReactionSummaries({
+    targets: storyReactionTarget ? [storyReactionTarget] : [],
+    user,
+  });
   const { getStoryBookmark } = useBookmarks(user);
   const [story, setStory] = useState(null);
   const [chapters, setChapters] = useState([]);
@@ -43,6 +143,7 @@ export default function StoryDetail() {
   const [walletSummary, setWalletSummary] = useState(null);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState(1000);
+  const [supportAmount, setSupportAmount] = useState(10000);
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -107,6 +208,52 @@ export default function StoryDetail() {
       cancelled = true;
     };
   }, [id, navigate, searchParams]);
+
+  useEffect(() => {
+    if (!id) {
+      return undefined;
+    }
+
+    const target = { scope: 'STORY', storyId: id };
+    const accessToken = user?.accessToken || user?.token || null;
+    const socket = subscribeCommentTargets(target, accessToken);
+    if (!socket) {
+      return undefined;
+    }
+
+    const handleCommentCreated = (payload) => {
+      if (
+        String(payload?.scope || '').toUpperCase() !== 'STORY' ||
+        String(payload?.storyId || '') !== String(id) ||
+        !payload?.comment
+      ) {
+        return;
+      }
+
+      setComments((prev) => prependComment(prev, payload.comment));
+    };
+
+    const handleCommentDeleted = (payload) => {
+      if (
+        String(payload?.scope || '').toUpperCase() !== 'STORY' ||
+        String(payload?.storyId || '') !== String(id) ||
+        !payload?.commentId
+      ) {
+        return;
+      }
+
+      setComments((prev) => removeComment(prev, payload.commentId));
+    };
+
+    socket.on(REALTIME_EVENTS.commentCreated, handleCommentCreated);
+    socket.on(REALTIME_EVENTS.commentDeleted, handleCommentDeleted);
+
+    return () => {
+      socket.off(REALTIME_EVENTS.commentCreated, handleCommentCreated);
+      socket.off(REALTIME_EVENTS.commentDeleted, handleCommentDeleted);
+      unsubscribeCommentTargets(target);
+    };
+  }, [id, user?.accessToken, user?.token]);
 
   const loadStory = async () => {
     setLoading(true);
@@ -310,6 +457,106 @@ export default function StoryDetail() {
     }
   };
 
+  const handleRentStory = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    try {
+      setPaymentBusy(true);
+      const response = await rentStory(id);
+      const expiresAt = response.data?.expiresAt;
+      toast.success('Da thue truyen thanh cong.');
+      setPaymentMessage(
+        expiresAt
+          ? `Da thue truyen den ${new Date(expiresAt).toLocaleString('vi-VN')}.`
+          : 'Da thue truyen thanh cong.',
+      );
+      await loadStory();
+    } catch (error) {
+      toastFromError(error, 'Khong the thue truyen nay.');
+      setPaymentMessage(
+        error?.response?.data?.message || 'Khong the thue truyen nay.',
+      );
+    } finally {
+      setPaymentBusy(false);
+    }
+  };
+
+  const handleUnlockChapter = async (chapter) => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    try {
+      setPaymentBusy(true);
+      await unlockChapter(chapter.id);
+      toast.success(`Da mo khoa Chuong ${chapter.chapterNumber}.`);
+      setPaymentMessage(`Da mo khoa Chuong ${chapter.chapterNumber}.`);
+      await loadStory();
+    } catch (error) {
+      toastFromError(error, 'Khong the mo khoa chuong nay.');
+      setPaymentMessage(
+        error?.response?.data?.message || 'Khong the mo khoa chuong nay.',
+      );
+    } finally {
+      setPaymentBusy(false);
+    }
+  };
+
+  const handleUnlockBundle = async (bundleOffer) => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    try {
+      setPaymentBusy(true);
+      await unlockChapterBundle(id, bundleOffer.chapterIds);
+      toast.success(`Da mua ${bundleOffer.title}.`);
+      setPaymentMessage(`Da mo khoa ${bundleOffer.title}.`);
+      await loadStory();
+    } catch (error) {
+      toastFromError(error, 'Khong the mua combo chuong nay.');
+      setPaymentMessage(
+        error?.response?.data?.message || 'Khong the mua combo chuong nay.',
+      );
+    } finally {
+      setPaymentBusy(false);
+    }
+  };
+
+  const handleSupportAuthor = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    if ((Number(supportAmount) || 0) < SUPPORT_MIN_AMOUNT) {
+      setPaymentMessage('So tien ung ho toi thieu la 1.000 VND.');
+      return;
+    }
+
+    try {
+      setPaymentBusy(true);
+      await supportAuthor(id, Number(supportAmount));
+      toast.success('Da ung ho tac gia thanh cong.');
+      setPaymentMessage(
+        `Da gui ${Number(supportAmount).toLocaleString('vi-VN')} VND den tac gia.`,
+      );
+      await loadStory();
+    } catch (error) {
+      toastFromError(error, 'Khong the ung ho tac gia luc nay.');
+      setPaymentMessage(
+        error?.response?.data?.message || 'Khong the ung ho tac gia luc nay.',
+      );
+    } finally {
+      setPaymentBusy(false);
+    }
+  };
+
   const handleRate = async (score) => {
     if (!user) return alert('Vui lòng đăng nhập!');
     try {
@@ -330,8 +577,15 @@ export default function StoryDetail() {
       alert('GIF lớn hơn 2MB, vui lòng chọn GIF nhỏ hơn.');
       return;
     }
+    let createdComment = null;
     try {
-      await createComment({ storyId: id, content: newComment, gifUrl: selectedGifUrl || null, gifSize: selectedGifSize || null });
+      const response = await createComment({
+        storyId: id,
+        content: newComment,
+        gifUrl: selectedGifUrl || null,
+        gifSize: selectedGifSize || null,
+      });
+      createdComment = response.data || null;
     } catch (e) {
       if (e?.response?.status === 401) {
         alert('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
@@ -344,8 +598,9 @@ export default function StoryDetail() {
     setSelectedGifUrl(null);
     setSelectedGifSize(null);
     setShowGifPicker(false);
-    const cmRes = await getCommentsByStory(id);
-    setComments(cmRes.data);
+    if (createdComment) {
+      setComments((prev) => prependComment(prev, createdComment));
+    }
     setVisibleCount(5);
     toast.success('Đã gửi bình luận.');
   };
@@ -399,15 +654,69 @@ export default function StoryDetail() {
   const readingNotePreview = story?.type === 'MANGA' ? '' : (readingHistoryItem?.note?.trim() || '');
   const isAdminUser = Boolean(user?.roles?.includes('ROLE_ADMIN'));
   const isStoryOwner = Boolean(user?.id && story?.uploaderId === user.id);
-  const unlockPrice = Number(story?.unlockPrice || 0);
+  const unlockPrice = normalizeMoney(story?.unlockPrice);
   const isLicensedStory = Boolean(story?.licensed) && unlockPrice > 0;
-  const walletBalance = Number(walletSummary?.balance || 0);
-  const coinBalance = Number(walletSummary?.coinBalance || 0);
+  const walletBalance = normalizeMoney(walletSummary?.balance);
+  const coinBalance = normalizeMoney(walletSummary?.coinBalance);
   const storyCoinPrice = calculateStoryCoinPrice(story);
-  const purchasedStoryIds = walletSummary?.purchasedStoryIds || [];
+  const purchasedStoryIds = Array.isArray(walletSummary?.purchasedStoryIds)
+    ? walletSummary.purchasedStoryIds
+    : [];
+  const purchasedChapterIds = Array.isArray(walletSummary?.purchasedChapterIds)
+    ? walletSummary.purchasedChapterIds
+    : [];
+  const activeRental = getActiveRentalEntry(walletSummary?.rentedStoryAccesses, id);
+  const rentalPrice = normalizeMoney(story?.rentalPrice);
+  const rentalEnabled = Boolean(story?.rentalEnabled) && rentalPrice > 0;
+  const supportEnabled = Boolean(story?.supportEnabled);
+  const supportTotalAmount = normalizeMoney(story?.supportTotalAmount);
+  const supportCount = normalizeMoney(story?.supportCount);
   const isStoryUnlocked =
-    !isLicensedStory || isAdminUser || isStoryOwner || purchasedStoryIds.includes(id);
+    !isLicensedStory ||
+    isAdminUser ||
+    isStoryOwner ||
+    purchasedStoryIds.includes(id) ||
+    Boolean(activeRental);
+  const chapterBundleOffers = [];
+  const hasCommercePanel =
+    isLicensedStory || rentalEnabled || supportEnabled;
   const canOpenReader = chapters.length > 0 && isStoryUnlocked;
+  const storyReactionSummary = storyReactionTarget
+    ? getSummary(storyReactionTarget)
+    : null;
+  const walletShortfall = Math.max(unlockPrice - walletBalance, 0);
+  const coinShortfall = Math.max(storyCoinPrice - coinBalance, 0);
+  const rentalShortfall = Math.max(rentalPrice - walletBalance, 0);
+  const formattedRentalExpiry = activeRental
+    ? new Date(activeRental.expiresAt).toLocaleDateString('vi-VN')
+    : '';
+  const commerceTitle = isLicensedStory
+    ? 'Truyện tính phí'
+    : rentalEnabled
+      ? 'Thuê truyện 7 ngày'
+      : 'Ủng hộ tác giả';
+  const commerceStateLabel = isStoryUnlocked
+    ? activeRental
+      ? 'Đang thuê'
+      : 'Đã mở khóa'
+    : isLicensedStory
+      ? 'Premium'
+      : rentalEnabled
+        ? 'Cho thuê'
+        : 'Mở';
+  const commerceDescription = isStoryUnlocked
+    ? activeRental
+      ? `Bạn đang thuê truyện này đến ${formattedRentalExpiry} và có thể đọc toàn bộ chương.`
+      : isAdminUser
+        ? 'Tài khoản quản trị có thể đọc toàn bộ truyện này.'
+        : isStoryOwner
+          ? 'Bạn là người đăng truyện này và có toàn quyền truy cập.'
+          : 'Bạn đã mở khóa truyện này và có thể đọc tất cả chương.'
+    : isLicensedStory
+      ? `Mở khóa trọn bộ với ${unlockPrice.toLocaleString('vi-VN')} VND${storyCoinPrice > 0 ? ` hoặc ${storyCoinPrice.toLocaleString('vi-VN')} xu` : ''}.`
+      : rentalEnabled
+        ? `Thuê truyện trong 7 ngày với ${rentalPrice.toLocaleString('vi-VN')} VND để đọc toàn bộ chương.`
+        : 'Bạn có thể ủng hộ tác giả trực tiếp từ ví.';
 
   return (
     <div className="container">
@@ -441,7 +750,136 @@ export default function StoryDetail() {
             <span>❤️ {story.followers || 0} theo dõi</span>
           </div>
           <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: '1rem' }}>{story.description}</p>
-          {isLicensedStory && (
+          {hasCommercePanel && (
+            <div className="story-commerce-panel">
+              <div className="story-commerce-head">
+                <div className="story-commerce-copy">
+                  <div className="story-commerce-kicker">
+                    <strong>{commerceTitle}</strong>
+                    <span className={`story-commerce-state ${isStoryUnlocked ? 'is-open' : 'is-locked'}`}>
+                      {commerceStateLabel}
+                    </span>
+                  </div>
+                  <p className="story-commerce-description">{commerceDescription}</p>
+                </div>
+                {user && (
+                  <div className="story-commerce-wallet">
+                    <span className="story-commerce-wallet-label">Số dư ví</span>
+                    <strong className="story-commerce-wallet-balance">
+                      {walletBalance.toLocaleString('vi-VN')} VND
+                    </strong>
+                    <span className="story-commerce-wallet-coins">
+                      {coinBalance.toLocaleString('vi-VN')} xu
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="story-commerce-badges">
+                {isLicensedStory && (
+                  <span className="story-commerce-badge is-warning">
+                    Mua trọn bộ {unlockPrice.toLocaleString('vi-VN')} VND
+                  </span>
+                )}
+                {storyCoinPrice > 0 && isLicensedStory && (
+                  <span className="story-commerce-badge is-accent">
+                    Mở khóa bằng {storyCoinPrice.toLocaleString('vi-VN')} xu
+                  </span>
+                )}
+                {rentalEnabled && (
+                  <span className="story-commerce-badge is-accent">
+                    Thuê 7 ngày {rentalPrice.toLocaleString('vi-VN')} VND
+                  </span>
+                )}
+                {supportEnabled && (
+                  <span className="story-commerce-badge">
+                    Ủng hộ tác giả mở
+                  </span>
+                )}
+                {activeRental && (
+                  <span className="story-commerce-badge is-open">
+                    Đã thuê đến {formattedRentalExpiry}
+                  </span>
+                )}
+              </div>
+              <div className="story-commerce-actions">
+                {!isStoryUnlocked && !user && (
+                  <Link to="/login" className="btn btn-primary">
+                    Đăng nhập để mở khóa
+                  </Link>
+                )}
+                {!isStoryUnlocked && user && isLicensedStory && walletBalance >= unlockPrice && (
+                  <button className="btn btn-primary" onClick={handleUnlockStory} disabled={paymentBusy}>
+                    {paymentBusy ? 'Đang xử lý...' : `Mua truyện ${unlockPrice.toLocaleString('vi-VN')} VND`}
+                  </button>
+                )}
+                {!isStoryUnlocked && user && isLicensedStory && walletBalance < unlockPrice && (
+                  <button className="btn btn-primary" onClick={handleOpenTopUp} disabled={paymentBusy}>
+                    Nạp MoMo
+                  </button>
+                )}
+                {!isStoryUnlocked && user && isLicensedStory && storyCoinPrice > 0 && coinBalance >= storyCoinPrice && (
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => handleUnlockStory('COINS')}
+                    disabled={paymentBusy}
+                  >
+                    {paymentBusy ? 'Đang xử lý...' : `Mở khóa bằng ${storyCoinPrice.toLocaleString('vi-VN')} xu`}
+                  </button>
+                )}
+                {!isStoryUnlocked && user && rentalEnabled && walletBalance >= rentalPrice && (
+                  <button className="btn btn-outline" onClick={handleRentStory} disabled={paymentBusy}>
+                    {paymentBusy ? 'Đang xử lý...' : `Thuê 7 ngày ${rentalPrice.toLocaleString('vi-VN')} VND`}
+                  </button>
+                )}
+                {supportEnabled && !user && (
+                  <Link to="/login" className="btn btn-outline">
+                    Đăng nhập để ủng hộ
+                  </Link>
+                )}
+                {supportEnabled && user && !isStoryOwner && (
+                  <div className="story-support-inline">
+                    <input
+                      className="form-control story-support-input"
+                      type="number"
+                      min={SUPPORT_MIN_AMOUNT}
+                      step="1000"
+                      value={supportAmount}
+                      onChange={(event) => setSupportAmount(Number(event.target.value) || 0)}
+                    />
+                    <button className="btn btn-outline" onClick={handleSupportAuthor} disabled={paymentBusy}>
+                      {paymentBusy ? 'Đang xử lý...' : 'Ủng hộ tác giả'}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="story-commerce-note-row">
+                {!isStoryUnlocked && user && isLicensedStory && walletShortfall > 0 && (
+                  <span className="story-commerce-note is-warning">
+                    Còn thiếu {walletShortfall.toLocaleString('vi-VN')} VND để mua
+                  </span>
+                )}
+                {!isStoryUnlocked && user && isLicensedStory && storyCoinPrice > 0 && coinShortfall > 0 && (
+                  <span className="story-commerce-note is-accent">
+                    Còn thiếu {coinShortfall.toLocaleString('vi-VN')} xu để mở khóa
+                  </span>
+                )}
+                {!isStoryUnlocked && user && rentalEnabled && rentalShortfall > 0 && (
+                  <span className="story-commerce-note is-accent">
+                    Thiếu {rentalShortfall.toLocaleString('vi-VN')} VND để thuê 7 ngày
+                  </span>
+                )}
+                {supportEnabled && user && isStoryOwner && (
+                  <span className="story-commerce-note">
+                    Bạn là tác giả của truyện này.
+                  </span>
+                )}
+              </div>
+              {paymentMessage && (
+                <p className="story-commerce-message">{paymentMessage}</p>
+              )}
+            </div>
+          )}
+          {false && hasCommercePanel && (
             <div
               style={{
                 marginBottom: '1rem',
@@ -472,24 +910,84 @@ export default function StoryDetail() {
                   </div>
                 )}
               </div>
+              <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+                {isLicensedStory && (
+                  <span className="status-badge" style={{ background: 'var(--warning-bg)', color: 'var(--warning)' }}>
+                    Mua truyen {unlockPrice.toLocaleString('vi-VN')} VND
+                  </span>
+                )}
+                {rentalEnabled && (
+                  <span className="status-badge" style={{ background: 'var(--accent-soft-2)', color: 'var(--accent)' }}>
+                    Thue 7 ngay {rentalPrice.toLocaleString('vi-VN')} VND
+                  </span>
+                )}
+                {supportEnabled && (
+                  <span className="status-badge" style={{ background: 'var(--bg-glass)', color: 'var(--text-primary)' }}>
+                    Ung ho tac gia mo
+                  </span>
+                )}
+                {activeRental && (
+                  <span className="status-badge" style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}>
+                    Da thue den {new Date(activeRental.expiresAt).toLocaleDateString('vi-VN')}
+                  </span>
+                )}
+              </div>
               {paymentMessage && (
                 <p style={{ margin: '0.75rem 0 0', color: 'var(--warning)' }}>{paymentMessage}</p>
-              )}
+              )}{/*
+              {supportEnabled && (
+                <div
+                  style={{
+                    marginTop: '0.85rem',
+                    padding: '0.85rem 1rem',
+                    borderRadius: '12px',
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <div>
+                      <strong>Ung ho tac gia</strong>
+                      <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)' }}>
+                        Da nhan {supportTotalAmount.toLocaleString('vi-VN')} VND tu {supportCount.toLocaleString('vi-VN')} luot.
+                      </p>
+                    </div>
+                    {!isStoryOwner && (
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input
+                          className="form-control"
+                          type="number"
+                          min={SUPPORT_MIN_AMOUNT}
+                          step="1000"
+                          value={supportAmount}
+                          onChange={(event) => setSupportAmount(Number(event.target.value) || 0)}
+                          style={{ width: '160px' }}
+                        />
+                        <button className="btn btn-outline" onClick={handleSupportAuthor} disabled={paymentBusy}>
+                          Ung ho
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}{/*
+                          {offer.chapterCount} chuong · giam {offer.discountPercent}% · da co {offer.unlockedCount}/{offer.chapterCount}
+*/}
             </div>
           )}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {canOpenReader && (
               <Link to={`/story/${id}/chapter/${chapters[0].id}`} className="btn btn-primary">📖 Đọc từ đầu</Link>
             )}
-            {!isStoryUnlocked && !user && (
+            {false && !isStoryUnlocked && !user && (
               <Link to="/login" className="btn btn-primary">Đăng nhập để mua</Link>
             )}
-            {!isStoryUnlocked && user && walletBalance >= unlockPrice && (
+            {false && !isStoryUnlocked && user && walletBalance >= unlockPrice && (
               <button className="btn btn-primary" onClick={handleUnlockStory} disabled={paymentBusy}>
                 {paymentBusy ? 'Đang xử lý...' : `Mua truyện ${unlockPrice.toLocaleString('vi-VN')} VND`}
               </button>
             )}
-            {!isStoryUnlocked && user && storyCoinPrice > 0 && coinBalance >= storyCoinPrice && (
+            {false && !isStoryUnlocked && user && storyCoinPrice > 0 && coinBalance >= storyCoinPrice && (
               <button
                 className="btn btn-outline"
                 onClick={() => handleUnlockStory('COINS')}
@@ -498,7 +996,7 @@ export default function StoryDetail() {
                 {paymentBusy ? 'Đang xử lý...' : `Mở khóa bằng ${storyCoinPrice.toLocaleString('vi-VN')} xu`}
               </button>
             )}
-            {!isStoryUnlocked && user && walletBalance < unlockPrice && (
+            {false && !isStoryUnlocked && user && walletBalance < unlockPrice && (
               <>
                 <button className="btn btn-primary" onClick={handleOpenTopUp} disabled={paymentBusy}>
                   Nạp MoMo để mua
@@ -519,7 +1017,7 @@ export default function StoryDetail() {
                 </span>
               </>
             )}
-            {!isStoryUnlocked && user && storyCoinPrice > 0 && coinBalance < storyCoinPrice && (
+            {false && !isStoryUnlocked && user && storyCoinPrice > 0 && coinBalance < storyCoinPrice && (
               <span
                 style={{
                   display: 'inline-flex',
@@ -533,6 +1031,27 @@ export default function StoryDetail() {
                 }}
               >
                 Còn thieu {(storyCoinPrice - coinBalance).toLocaleString('vi-VN')} xu
+              </span>
+            )}
+            {false && !isStoryUnlocked && user && rentalEnabled && walletBalance >= rentalPrice && (
+              <button className="btn btn-outline" onClick={handleRentStory} disabled={paymentBusy}>
+                {paymentBusy ? 'Dang xu ly...' : `Thue 7 ngay ${rentalPrice.toLocaleString('vi-VN')} VND`}
+              </button>
+            )}
+            {false && !isStoryUnlocked && user && rentalEnabled && walletBalance < rentalPrice && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '0.65rem 0.9rem',
+                  borderRadius: '999px',
+                  background: 'var(--accent-soft-2)',
+                  color: 'var(--accent)',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                }}
+              >
+                Thieu {(rentalPrice - walletBalance).toLocaleString('vi-VN')} VND de thue 7 ngay
               </span>
             )}
             {readingHistoryItem?.chapterId && isStoryUnlocked && (
@@ -558,6 +1077,16 @@ export default function StoryDetail() {
               Báo lỗi
             </button>
           </div>
+          {storyReactionTarget && storyReactionSummary && (
+            <div style={{ marginTop: '1rem' }}>
+              <ReactionBar
+                summary={storyReactionSummary}
+                loading={loadingTarget(storyReactionTarget)}
+                promptLabel="Cam xuc voi truyen"
+                onReact={(emotion) => reactToTarget(storyReactionTarget, emotion)}
+              />
+            </div>
+          )}
           {(readingHistoryItem?.chapterId || readingNotePreview) && (
             <div
               style={{
@@ -653,11 +1182,16 @@ export default function StoryDetail() {
               Mua truyện để đọc các chương bên dưới.
             </p>
           )}
+          {!isStoryUnlocked && chapters.some((chapter) => chapter.accessMode && chapter.accessMode !== 'FREE') && (
+            <p style={{ marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+              Cac chuong gan nhan "Mua rieng" hoac "Early access" co the mo khoa tung chuong ma khong can mua tron bo.
+            </p>
+          )}
           {chapters.length > 0 ? (
             <ul className="chapter-list">
               {chapters.map(ch => (
-                <li key={ch.id} className="chapter-item">
-                  {isStoryUnlocked ? (
+                <li key={ch.id} className="chapter-item" style={{ alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  {ch.canRead ? (
                     <Link to={`/story/${id}/chapter/${ch.id}`} className="chapter-title" style={{ textDecoration: 'none', color: 'inherit' }}>
                       Chương {ch.chapterNumber}: {ch.title}
                     </Link>
@@ -666,7 +1200,57 @@ export default function StoryDetail() {
                       Chương {ch.chapterNumber}: {ch.title}
                     </span>
                   )}
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{new Date(ch.createdAt).toLocaleDateString('vi-VN')}</span>
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginLeft: 'auto' }}>
+                    <span
+                      className="status-badge"
+                      style={{
+                        background:
+                          ch.accessMode === 'EARLY_ACCESS'
+                            ? 'var(--warning-bg)'
+                            : ch.accessMode === 'PURCHASE'
+                              ? 'var(--accent-soft-2)'
+                              : 'var(--bg-glass)',
+                        color:
+                          ch.accessMode === 'EARLY_ACCESS'
+                            ? 'var(--warning)'
+                            : ch.accessMode === 'PURCHASE'
+                              ? 'var(--accent)'
+                              : 'var(--text-secondary)',
+                      }}
+                    >
+                      {ch.accessMode === 'EARLY_ACCESS'
+                        ? `Early access · ${normalizeMoney(ch.accessPrice).toLocaleString('vi-VN')} VND`
+                        : ch.accessMode === 'PURCHASE'
+                          ? `Mua rieng · ${normalizeMoney(ch.accessPrice).toLocaleString('vi-VN')} VND`
+                          : 'Mo theo truyện'}
+                    </span>
+                    {!ch.canRead && ch.lockReason && (
+                      <span className="status-badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>
+                        {ch.lockReason === 'EARLY_ACCESS_REQUIRED'
+                          ? 'Can mo khoa early access'
+                          : ch.lockReason === 'CHAPTER_PURCHASE_REQUIRED'
+                            ? 'Can mua rieng chuong'
+                            : 'Can mo khoa truyện'}
+                      </span>
+                    )}
+                    {!ch.canRead && ch.accessMode !== 'FREE' && (
+                      user ? (
+                        <button className="btn btn-sm btn-outline" onClick={() => handleUnlockChapter(ch)} disabled={paymentBusy}>
+                          Mua chuong
+                        </button>
+                      ) : (
+                        <Link to="/login" className="btn btn-sm btn-outline">Dang nhap de mua</Link>
+                      )
+                    )}
+                    {!ch.canRead && ch.accessMode === 'FREE' && rentalEnabled && user && (
+                      <button className="btn btn-sm btn-outline" onClick={handleRentStory} disabled={paymentBusy}>
+                        Thue 7 ngay
+                      </button>
+                    )}
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', alignSelf: 'center' }}>
+                      {new Date(ch.createdAt).toLocaleDateString('vi-VN')}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>

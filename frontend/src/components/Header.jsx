@@ -7,7 +7,7 @@ import {
   markAllAsRead,
   markAsRead,
 } from '../services/api';
-import { connectRealtime, disconnectRealtime, REALTIME_EVENTS } from '../services/realtime';
+import { connectRealtime, REALTIME_EVENTS } from '../services/realtime';
 import { toast } from '../services/toast';
 import { useTheme } from '../context/ThemeContext';
 
@@ -128,14 +128,9 @@ export default function Header() {
   }, [user, location.pathname, location.search]);
 
   useEffect(() => {
-    if (!user) {
-      disconnectRealtime();
-      return undefined;
-    }
-
-    const accessToken = user.accessToken || user.token;
+    const accessToken = user?.accessToken || user?.token || null;
     const socket = connectRealtime(accessToken);
-    if (!socket) {
+    if (!socket || !user) {
       return undefined;
     }
 
@@ -166,7 +161,6 @@ export default function Header() {
 
     return () => {
       socket.off(REALTIME_EVENTS.notificationNew, handleNewNotification);
-      disconnectRealtime();
     };
   }, [user, navigate]);
 
@@ -188,7 +182,6 @@ export default function Header() {
   }, []);
 
   const handleLogout = () => {
-    disconnectRealtime();
     logout();
     navigate('/login');
   };
