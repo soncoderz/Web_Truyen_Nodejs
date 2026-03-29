@@ -109,6 +109,8 @@ export const incrementViews = (id) => api.put(`/stories/${id}/views`);
 export const followStory = (id) => api.post(`/stories/${id}/follow`);
 export const isFollowing = (id) => api.get(`/stories/${id}/is-following`);
 export const getRelatedStories = (id) => api.get(`/stories/${id}/related`);
+export const getAiStoryRecommendations = (id, limit = 6) =>
+  api.get(`/stories/${id}/ai-recommendations`, { params: { limit } });
 
 // Categories
 export const getCategories = () => api.get("/categories");
@@ -224,6 +226,10 @@ export const searchGifs = (q, limit = 12) =>
   api.get("/gifs/search", { params: { q, limit } });
 export const trendingGifs = (limit = 12) =>
   api.get("/gifs/trending", { params: { limit } });
+
+// AI
+export const sendHomeAiChatMessage = (message, history = []) =>
+  api.post("/ai/chat", { message, history });
 
 // Admin
 export const getAdminStats = () => api.get("/admin/stats");

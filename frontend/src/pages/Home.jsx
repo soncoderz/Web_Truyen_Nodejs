@@ -11,6 +11,7 @@ import {
 } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import HeartIcon from "../components/HeartIcon";
+import HomeAiChatWidget from "../components/HomeAiChatWidget";
 import useFollowedStories from "../hooks/useFollowedStories";
 import { getReadChapters } from "../utils/readingStorage";
 
@@ -107,7 +108,8 @@ export default function Home() {
   };
 
   return (
-    <div className="container">
+    <>
+    <div className="container" style={{ paddingBottom: "34rem" }}>
       {/* Hero */}
       <div
         style={{
@@ -352,6 +354,8 @@ export default function Home() {
         </div>
       )}
     </div>
+    <HomeAiChatWidget />
+    </>
   );
 }
 

@@ -35,6 +35,7 @@ function createApp() {
   app.use("/api/reactions", require("./routes/reactions"));
   app.use("/api/reports", require("./routes/reports"));
   app.use("/api/gifs", require("./routes/gifs"));
+  app.use("/api/ai", require("./routes/ai"));
   app.use("/api/admin/import", require("./routes/import"));
   app.use("/api/admin", require("./routes/admin"));
   app.use("/api/upload", require("./routes/upload"));
