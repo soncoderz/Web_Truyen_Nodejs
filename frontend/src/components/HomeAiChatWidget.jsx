@@ -34,7 +34,7 @@ function toHistoryPayload(messages) {
   }));
 }
 
-export default function HomeAiChatWidget() {
+export default function HomeAiChatWidget({ onExpandedChange }) {
   const initialMessages = useMemo(
     () => [
       createAssistantMessage(
@@ -46,6 +46,13 @@ export default function HomeAiChatWidget() {
   const [messages, setMessages] = useState(initialMessages);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+
+    return window.localStorage.getItem("home-ai-chat-expanded") !== "false";
+  });
   const listRef = useRef(null);
 
   useEffect(() => {
@@ -56,6 +63,23 @@ export default function HomeAiChatWidget() {
 
     node.scrollTop = node.scrollHeight;
   }, [messages, sending]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      "home-ai-chat-expanded",
+      isExpanded ? "true" : "false",
+    );
+  }, [isExpanded]);
+
+  useEffect(() => {
+    if (typeof onExpandedChange === "function") {
+      onExpandedChange(isExpanded);
+    }
+  }, [isExpanded, onExpandedChange]);
 
   const submitMessage = async (rawText) => {
     const message = String(rawText || "").trim();
@@ -87,6 +111,23 @@ export default function HomeAiChatWidget() {
     }
   };
 
+  if (!isExpanded) {
+    return (
+      <aside className="home-ai-chat-widget" aria-label="AI chat box">
+        <button
+          type="button"
+          className="home-ai-chat-launcher"
+          onClick={() => setIsExpanded(true)}
+          aria-label="Mo tro ly AI"
+          aria-expanded="false"
+        >
+          <span className="home-ai-chat-launcher-icon">AI</span>
+          <span className="home-ai-chat-launcher-label">Tro ly AI</span>
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="home-ai-chat-widget" aria-label="AI chat box">
       <div className="home-ai-chat-card">
@@ -95,7 +136,18 @@ export default function HomeAiChatWidget() {
             <p className="home-ai-chat-kicker">AI Chat Box</p>
             <h3>Tro ly goi y truyen</h3>
           </div>
-          <span className="home-ai-chat-status">{sending ? "Dang tra loi" : "Dang san sang"}</span>
+          <div className="home-ai-chat-header-actions">
+            <span className="home-ai-chat-status">{sending ? "Dang tra loi" : "Dang san sang"}</span>
+            <button
+              type="button"
+              className="home-ai-chat-toggle"
+              onClick={() => setIsExpanded(false)}
+              aria-label="Thu gon tro ly AI"
+              title="Thu gon tro ly AI"
+            >
+              -
+            </button>
+          </div>
         </div>
 
         <div className="home-ai-chat-quick-row">
