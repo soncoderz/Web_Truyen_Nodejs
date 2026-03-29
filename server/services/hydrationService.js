@@ -64,15 +64,18 @@ async function hydrateStories(stories) {
   }));
 }
 
-function serializeChapterListItem(chapter) {
+function serializeChapterListItem(chapter, extra = {}) {
   const plainChapter = serializeDoc(chapter);
   return {
     id: plainChapter.id,
     storyId: plainChapter.storyId,
     chapterNumber: plainChapter.chapterNumber,
     title: plainChapter.title,
+    accessMode: plainChapter.accessMode || "FREE",
+    accessPrice: plainChapter.accessPrice || 0,
     createdAt: plainChapter.createdAt,
     updatedAt: plainChapter.updatedAt,
+    ...extra,
   };
 }
 

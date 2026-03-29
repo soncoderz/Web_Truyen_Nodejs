@@ -4,12 +4,19 @@ const Notification = require("../models/notification");
 const Story = require("../models/story");
 const User = require("../models/user");
 const { emitNotificationsCreated } = require("../services/realtime");
+const {
+  CHAPTER_ACCESS_MODES,
+  buildStoryMonetizationState,
+  buildUserEntitlements,
+  normalizeChapterAccessMode,
+  normalizeCurrencyAmount,
+  resolveChapterAccess,
+} = require("../services/monetizationService");
 const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth, requireRoles } = require("../middleware/auth");
 const { getCurrentUserDocument } = require("../utils/currentUser");
 const { buildMessage, serializeDoc } = require("../utils/serialize");
 const {
-  canAccessLicensedStory,
   canManageStory,
   canViewStory,
   isAdmin,
@@ -53,6 +60,35 @@ function markReviewed(chapter, approvalStatus, reviewer, reviewNote) {
   chapter.reviewedById = reviewer.id;
   chapter.reviewedByUsername = reviewer.username;
   chapter.reviewNote = reviewNote ? String(reviewNote).trim() : null;
+}
+
+function validateChapterPricing(chapter) {
+  if (
+    normalizeChapterAccessMode(chapter.accessMode) !== CHAPTER_ACCESS_MODES.FREE &&
+    Number(chapter.accessPrice || 0) <= 0
+  ) {
+    return "Loi: Chuong tinh phi hoac early access phai co gia lon hon 0.";
+  }
+
+  return null;
+}
+
+function applyChapterAccessRequest(chapter, request, allowPricingChanges) {
+  if (!allowPricingChanges) {
+    if (!chapter.accessMode) {
+      chapter.accessMode = CHAPTER_ACCESS_MODES.FREE;
+    }
+    if (!chapter.accessPrice) {
+      chapter.accessPrice = 0;
+    }
+    return;
+  }
+
+  chapter.accessMode = normalizeChapterAccessMode(request?.accessMode);
+  chapter.accessPrice =
+    chapter.accessMode === CHAPTER_ACCESS_MODES.FREE
+      ? 0
+      : normalizeCurrencyAmount(request?.accessPrice, 0);
 }
 
 async function sendNewChapterNotifications(story, chapter) {
@@ -130,6 +166,9 @@ router.get(
       return res.json([]);
     }
 
+    const currentUser = req.user?.id ? await User.findById(req.user.id).lean() : null;
+    const entitlements = buildUserEntitlements(currentUser);
+
     const chapters = await Chapter.find({ storyId: req.params.storyId })
       .sort({ chapterNumber: 1 })
       .lean();
@@ -138,7 +177,21 @@ router.get(
       ? chapters
       : chapters.filter((chapter) => isApprovedStatus(chapter.approvalStatus));
 
-    res.json(visibleChapters.map(serializeChapterListItem));
+    const storyCommerce = buildStoryMonetizationState(plainStory, req.user, entitlements);
+
+    res.json(
+      visibleChapters.map((chapter) => {
+        const access = resolveChapterAccess(chapter, plainStory, req.user, entitlements);
+        return serializeChapterListItem(chapter, {
+          canRead: access.canRead,
+          isLocked: access.isLocked,
+          lockReason: access.lockReason,
+          accessMode: access.accessMode,
+          accessPrice: access.accessPrice,
+          storyLicensed: storyCommerce.licensed,
+        });
+      }),
+    );
   }),
 );
 
@@ -196,29 +249,33 @@ router.get(
     }
 
     const plainStory = serializeDoc(story);
-    let purchasedStoryIds = [];
-
-    if (req.user?.id) {
-      const user = await User.findById(req.user.id).lean();
-      purchasedStoryIds = user?.purchasedStoryIds || [];
-    }
+    const currentUser = req.user?.id ? await User.findById(req.user.id).lean() : null;
+    const entitlements = buildUserEntitlements(currentUser);
+    const access = resolveChapterAccess(chapter, plainStory, req.user, entitlements);
 
     const visible =
       canViewStory(plainStory, req.user) &&
-      canAccessLicensedStory(plainStory, req.user, purchasedStoryIds) &&
+      access.canRead &&
       (isApprovedStatus(chapter.approvalStatus) || canManageStory(plainStory, req.user));
 
     if (!visible) {
-      if (
-        isApprovedStatus(story.approvalStatus) &&
-        story.licensed &&
-        Number(story.unlockPrice || 0) > 0 &&
-        !canManageStory(plainStory, req.user) &&
-        !purchasedStoryIds.includes(String(story._id))
-            ) {
+      if (canViewStory(plainStory, req.user) && isApprovedStatus(chapter.approvalStatus)) {
         if (optional) {
           return res.json(null);
         }
+        return res.status(402).json({
+          message:
+            access.lockReason === "EARLY_ACCESS_REQUIRED"
+              ? "Chuong nay dang o che do early access. Hay mua rieng chuong de doc ngay."
+              : access.lockReason === "CHAPTER_PURCHASE_REQUIRED"
+                ? "Chuong nay can mua rieng truoc khi doc."
+                : "Ban can mo khoa truyen nay truoc khi doc chuong.",
+          lockReason: access.lockReason,
+          accessMode: access.accessMode,
+          accessPrice: access.accessPrice,
+          storyId: plainStory.id,
+          chapterId: String(chapter.id || chapter._id || req.params.id),
+        });
         return res
           .status(402)
           .json(buildMessage("Lá»—i: HĂ£y mua truyá»‡n cĂ³ báº£n quyá»n nĂ y trÆ°á»›c khi Ä‘á»c."));
@@ -271,6 +328,12 @@ router.post(
       updatedAt: new Date(),
     });
 
+    applyChapterAccessRequest(chapter, req.body, admin);
+    const pricingError = validateChapterPricing(chapter);
+    if (pricingError) {
+      throw httpError(400, pricingError);
+    }
+
     if (admin) {
       markReviewed(chapter, "APPROVED", req.user, null);
     } else {
@@ -318,6 +381,11 @@ router.put(
     chapter.chapterNumber = Number(req.body.chapterNumber);
     chapter.pages = Array.isArray(req.body.pages) ? req.body.pages : [];
     chapter.updatedAt = new Date();
+    applyChapterAccessRequest(chapter, req.body, isAdmin(req.user));
+    const pricingError = validateChapterPricing(chapter);
+    if (pricingError) {
+      throw httpError(400, pricingError);
+    }
 
     if (isAdmin(req.user)) {
       markReviewed(chapter, "APPROVED", req.user, null);

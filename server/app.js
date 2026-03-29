@@ -30,6 +30,7 @@ function createApp() {
   app.use("/api/reading-history", require("./routes/readingHistory"));
   app.use("/api/payments", require("./routes/payments"));
   app.use("/api/notifications", require("./routes/notifications"));
+  app.use("/api/reactions", require("./routes/reactions"));
   app.use("/api/reports", require("./routes/reports"));
   app.use("/api/gifs", require("./routes/gifs"));
   app.use("/api/admin", require("./routes/admin"));
