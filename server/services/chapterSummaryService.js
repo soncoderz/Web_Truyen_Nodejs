@@ -35,12 +35,12 @@ Nhiem vu:
 Hay viet tom tat bang tieng Viet cho DUNG MOT chapter duoc cung cap.
 
 Quy tac bat buoc:
-- Dau ra chi la MOT doan van ngan gon, thuong 2 cau, toi da 320 ky tu.
+- Dau ra chi la MOT doan van ngan gon, 1 den 2 cau, toi da 220 ky tu.
 - Cau 1 neu su kien, xung dot hoac dien bien chinh cua chapter.
 - Cau 2 neu cam xuc, quyet dinh, chuyen bien hoac ket qua o cuoi chapter.
 - Chi tap trung vao noi dung xay ra trong chapter hien tai.
 - Chi su dung thong tin co trong du lieu duoc cung cap.
-- Khong tom tat mo ta tong quan cua ca truyen.
+- Duoc phep tham khao mo ta ngan cua truyen de hieu boi canh, nhan vat va tinh huong, nhung khong duoc bien mo ta tong quan do thanh ban tom tat chapter.
 - Khong gioi thieu lai boi canh, the gioi, xuat than nhan vat hay muc tieu dai han cua ca truyen.
 - Neu chapter co ten rieng cua nhan vat, dia danh, to chuc hoac danh xung dac thu, hay giu nguyen cac ten do trong ban tom tat.
 - Uu tien goi nhan vat bang ten rieng thay vi cach noi mo ho nhu "mot co gai", "mot chang trai", "mot nguoi".
@@ -48,6 +48,7 @@ Quy tac bat buoc:
 - Khong chep nguyen van hoi thoai, cau noi hay doan van; phai dien dat lai bang loi tom tat.
 - Khong dung markdown, khong gach dau dong, khong them tieu de.
 - Khong mo dau bang cac cau dan nhap nhu "Duoi day la noi dung..." hoac "Chapter Summary".
+- Khong mo dau bang "Boi canh", "Chuong nay" hoac mot cau gioi thieu dai dong.
 - Neu du lieu den tu hinh anh, hay dua vao khung tranh, bong thoai va dien bien trong anh de tom tat dung chapter nay.
 - Bo qua watermark, credit scan, ten website va moi noi dung khong lien quan.
 - Khong bia, khong suy dien, khong them tinh tiet ngoai du lieu duoc cung cap.
@@ -63,7 +64,7 @@ Khong chap nhan:
 const GEMINI_SUMMARY_REWRITE_PROMPT = `
 Ban dang sua lai mot ban tom tat chapter chua dat yeu cau.
 
-Hay viet lai thanh mot doan tom tat tieng Viet ngan gon, ro rang, thuong 2 cau, toi da 260 ky tu.
+Hay viet lai thanh mot doan tom tat tieng Viet ngan gon, ro rang, 1 den 2 cau, toi da 220 ky tu.
 
 Quy tac bat buoc:
 - Chi giu y chinh cua chapter hien tai.
@@ -71,6 +72,7 @@ Quy tac bat buoc:
 - Neu trong du lieu co ten rieng quan trong, hay giu nguyen 1 den 3 ten rieng phu hop trong ban tom tat.
 - Khong chep lai hoi thoai, khong de dau ngoac kep, khong de giong van ke chuyen nguyen ban.
 - Khong mo dau bang mo ta phong canh dai dong hay tam trang keo dai.
+- Khong mo dau bang "Boi canh" hay cach dan nhap tuong tu.
 - Khong nhac lai mo ta tong quan cua ca truyen.
 - Chi tra ve ban tom tat da viet lai, khong giai thich them.
 `;
@@ -84,6 +86,30 @@ const SUMMARY_PREFIX_PATTERNS = [
   ),
   new RegExp("^(?:ocr|transcription|image\\s+transcription)\\s*:?\\s*", SUMMARY_REGEX_FLAGS),
 ];
+const STORY_CONTEXT_PREFIX_PATTERNS = [
+  /^dưới đây là nội dung văn bản từ hình ảnh bạn đã gửi:\s*/iu,
+  /^duoi day la noi dung van ban tu hinh anh ban da gui:\s*/iu,
+  /^ocr\s*:?\s*/iu,
+  /^transcription\s*:?\s*/iu,
+];
+const CHAPTER_TITLE_PREFIX_PATTERNS = [
+  /^đọc truyện\s*/iu,
+  /^doc truyen\s*/iu,
+  /^read manga\s*/iu,
+  /^read chapter\s*/iu,
+];
+const CHAPTER_TITLE_SUFFIX_PATTERNS = [
+  /\s*chương mới nhất$/iu,
+  /\s*chuong moi nhat$/iu,
+  /\s*chapter latest$/iu,
+];
+
+const GENERIC_FALLBACK_PATTERNS = [
+  /^boi canh\s*:/iu,
+  /\bgom\s+\d+\s+trang\s+manga\b/iu,
+  /\btap trung vao dien bien(?:\s+rieng)? cua chuong nay\b/iu,
+  /\bthay doi tam ly cua nhan vat trong chapter nay\b/iu,
+];
 
 function isMangaStory(story) {
   return String(story?.type || "").toUpperCase() === "MANGA";
@@ -91,6 +117,15 @@ function isMangaStory(story) {
 
 function getAiConfig() {
   return env.aiSummary || {};
+}
+
+function getSummaryOutputLimit() {
+  const configuredLimit = Number(getAiConfig().maxOutputChars || 420);
+  if (!Number.isFinite(configuredLimit) || configuredLimit <= 0) {
+    return 220;
+  }
+
+  return Math.min(configuredLimit, 220);
 }
 
 async function generateSummary(story, chapter) {
@@ -117,11 +152,7 @@ async function generateSummary(story, chapter) {
 
 async function buildDisplaySummary(story, chapter) {
   const storedSummary = normalizeSummary(chapter?.summary);
-  if (
-    storedSummary &&
-    !looksLikeStoryLevelSummary(story, chapter, storedSummary) &&
-    !looksLikeRawChapterExcerpt(story, chapter, storedSummary)
-  ) {
+  if (storedSummary && !looksLikePoorSummary(story, chapter, storedSummary)) {
     return storedSummary;
   }
 
@@ -158,7 +189,7 @@ async function requestAiSummary(systemPrompt, userParts) {
       ],
       generationConfig: {
         temperature: 0.2,
-        maxOutputTokens: 180,
+        maxOutputTokens: 120,
         responseMimeType: "text/plain",
       },
     };
@@ -291,12 +322,27 @@ async function buildInlineImagePart(imageUrl) {
 
 function buildContextPrompt(story, chapter) {
   const builder = [];
+  const chapterContextTitle = pickUsefulChapterTitle(story, chapter);
   builder.push(`Loai: ${isMangaStory(story) ? "Manga" : "Light Novel"}`);
+  builder.push(`Tieu de truyen: ${defaultText(story?.title, "Khong co")}`);
+  const storyContextSnippet = buildStoryContextSnippet(story?.description);
+  if (storyContextSnippet) {
+    builder.push(
+      `Mo ta truyen de lay ngu canh (khong duoc chep lai y nguyen van): ${storyContextSnippet}`,
+    );
+  }
   builder.push(`Chuong: ${defaultText(chapter?.chapterNumber, "Khong ro")}`);
-  builder.push(`Tieu de chuong: ${defaultText(chapter?.title, "Khong co")}`);
-  builder.push("Chi tom tat du lieu cua chapter hien tai. Bo qua boi canh tong quan cua truyen.");
+  if (chapterContextTitle) {
+    builder.push(`Tieu de chuong: ${chapterContextTitle}`);
+  }
+  builder.push(
+    "Hay dung mo ta truyen chi nhu ngu canh rat ngan, nhung ban tom tat cuoi cung phai noi ve dien bien cua chapter hien tai.",
+  );
+  builder.push(
+    "Neu tieu de chuong co ve la tieu de SEO tu web scan thi hay bo qua, uu tien noi dung chapter va hinh anh cua chapter.",
+  );
 
-  const candidateProperNames = extractCandidateProperNames(chapter);
+  const candidateProperNames = extractCandidateProperNames(story, chapter);
   if (candidateProperNames.length > 0) {
     builder.push(
       `Ten rieng uu tien giu nguyen neu xuat hien trong chapter: ${candidateProperNames.join(", ")}`,
@@ -319,35 +365,133 @@ function buildContextPrompt(story, chapter) {
 
 function buildFallbackSummary(story, chapter) {
   return isMangaStory(story)
-    ? buildMangaFallback(chapter)
-    : buildNovelFallback(chapter);
+    ? buildMangaFallback(story, chapter)
+    : buildNovelFallback(story, chapter);
 }
 
-function buildNovelFallback(chapter) {
-  const config = getAiConfig();
-  const chapterExcerpt = buildNovelChapterExcerpt(chapter?.content);
-  if (!chapterExcerpt) {
-    return truncate(
-      `Chuong ${defaultText(chapter?.chapterNumber, "nay")} tap trung vao mot dien bien moi va thay doi tam ly cua nhan vat trong chapter nay.`,
-      config.maxOutputChars || 420,
+function buildNovelFallback(story, chapter) {
+  const chapterNumber = defaultText(chapter?.chapterNumber, "nay");
+  const usefulTitle = pickUsefulChapterTitle(story, chapter);
+  const focusName = extractCandidateProperNames(story, chapter)[0];
+
+  if (usefulTitle) {
+    return normalizeSummary(
+      `Chuong ${chapterNumber} xoay quanh ${usefulTitle} va mo ra mot chuyen bien moi o cuoi chapter.`,
     );
   }
 
-  return truncate(chapterExcerpt, config.maxOutputChars || 420);
+  if (focusName) {
+    return normalizeSummary(
+      `Chuong ${chapterNumber} tap trung vao ${focusName} khi mot tinh huong moi day cao xung dot.`,
+    );
+  }
+
+  return normalizeSummary(`Chuong ${chapterNumber} day mach truyen tien them voi mot dien bien moi.`);
 }
 
-function buildMangaFallback(chapter) {
-  const config = getAiConfig();
-  const totalPages = Array.isArray(chapter?.pages) ? chapter.pages.length : 0;
-  const chapterTitle = defaultText(chapter?.title, "Khong co tieu de");
+function buildMangaFallback(story, chapter) {
+  const chapterNumber = defaultText(chapter?.chapterNumber, "nay");
+  const usefulTitle = pickUsefulChapterTitle(story, chapter);
+  const focusName = extractCandidateProperNames(story, chapter)[0];
 
-  let summary = `Chuong ${defaultText(chapter?.chapterNumber, "nay")}`;
-  if (chapterTitle) {
-    summary += ` - ${chapterTitle}`;
+  if (usefulTitle) {
+    return normalizeSummary(
+      `Chuong ${chapterNumber} xoay quanh ${usefulTitle} va de lai mot nut that moi o cuoi chapter.`,
+    );
   }
-  summary += ` gom ${totalPages} trang manga. Day la tom tat rieng cho chuong nay, khong phai mo ta tong quan cua ca truyen.`;
 
-  return truncate(normalizeWhitespace(summary), config.maxOutputChars || 420);
+  if (focusName) {
+    return normalizeSummary(
+      `Chuong ${chapterNumber} tap trung vao ${focusName} truoc mot dien bien moi trong manh truyen nay.`,
+    );
+  }
+
+  return normalizeSummary(`Chuong ${chapterNumber} day nhanh dien bien chinh bang mot tinh huong moi.`);
+}
+
+function buildStoryContextSnippet(description) {
+  const cleanedDescription = cleanStoryContextText(description);
+  if (!cleanedDescription) {
+    return "";
+  }
+
+  return truncate(cleanedDescription, 110);
+}
+
+function trimTrailingPunctuation(value) {
+  return String(value || "").replace(/[\s.,;:!?]+$/g, "").trim();
+}
+
+function cleanStoryContextText(value) {
+  let cleaned = normalizeWhitespace(value);
+  if (!cleaned) {
+    return "";
+  }
+
+  let updated = true;
+  while (updated && cleaned) {
+    updated = false;
+    for (const pattern of STORY_CONTEXT_PREFIX_PATTERNS) {
+      const nextValue = cleaned.replace(pattern, "").trim();
+      if (nextValue !== cleaned) {
+        cleaned = nextValue;
+        updated = true;
+      }
+    }
+  }
+
+  cleaned = cleaned.replace(/^[\s"'“”]+/, "").replace(/[\s"'“”]+$/, "").trim();
+  return cleaned;
+}
+
+function cleanChapterTitleText(value) {
+  let cleaned = normalizeWhitespace(value);
+  if (!cleaned) {
+    return "";
+  }
+
+  for (const pattern of CHAPTER_TITLE_PREFIX_PATTERNS) {
+    cleaned = cleaned.replace(pattern, "").trim();
+  }
+
+  for (const pattern of CHAPTER_TITLE_SUFFIX_PATTERNS) {
+    cleaned = cleaned.replace(pattern, "").trim();
+  }
+
+  return cleaned || normalizeWhitespace(value);
+}
+
+function pickUsefulChapterTitle(story, chapter) {
+  const cleanedTitle = cleanChapterTitleText(chapter?.title);
+  if (!cleanedTitle) {
+    return "";
+  }
+
+  if (/\b(?:chuong|chương|chapter)\s*\d+\b/iu.test(cleanedTitle)) {
+    return "";
+  }
+
+  const normalizedTitle = normalizeComparableText(cleanedTitle);
+  if (!normalizedTitle) {
+    return "";
+  }
+
+  const normalizedStoryTitle = normalizeComparableText(story?.title);
+  if (normalizedStoryTitle && normalizedTitle === normalizedStoryTitle) {
+    return "";
+  }
+
+  return cleanedTitle;
+}
+
+function normalizeComparableText(value) {
+  return normalizeWhitespace(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function sampleImageUrls(imageUrls) {
@@ -468,9 +612,9 @@ function buildNovelChapterExcerpt(content) {
   );
 }
 
-function extractCandidateProperNames(chapter) {
+function extractCandidateProperNames(story, chapter) {
   const scores = new Map();
-  collectProperNames(chapter?.title, scores, 3);
+  collectProperNames(pickUsefulChapterTitle(story, chapter), scores, 3);
   collectProperNames(chapter?.content, scores, 1);
 
   return Array.from(scores.entries())
@@ -581,7 +725,14 @@ function normalizeSummary(rawSummary) {
     normalized = normalized.slice(1, -1).trim();
   }
 
-  return truncate(normalized, getAiConfig().maxOutputChars || 420);
+  const sentences = splitSummarySentences(normalized).slice(0, 2);
+  normalized = normalizeWhitespace(sentences.join(" "));
+
+  if (!normalized) {
+    return null;
+  }
+
+  return truncateSummaryText(normalized, getSummaryOutputLimit());
 }
 
 function looksLikeStoryLevelSummary(story, chapter, summary) {
@@ -593,7 +744,11 @@ function looksLikeStoryLevelSummary(story, chapter, summary) {
   const normalizedStoryDescription = normalizeWhitespace(story?.description).toLowerCase();
   if (normalizedStoryDescription) {
     const comparisonSnippet = truncate(normalizedStoryDescription, 140).toLowerCase();
-    if (comparisonSnippet && normalizedSummary.includes(comparisonSnippet)) {
+    const containsChapterSignals =
+      normalizedSummary.includes("chuong") ||
+      normalizedSummary.includes("dien bien") ||
+      normalizedSummary.includes("trang");
+    if (comparisonSnippet && normalizedSummary.includes(comparisonSnippet) && !containsChapterSignals) {
       return true;
     }
   }
@@ -615,7 +770,34 @@ function looksLikePoorSummary(story, chapter, summary) {
     looksLikeStoryLevelSummary(story, chapter, summary) ||
     looksLikeRawChapterExcerpt(story, chapter, summary) ||
     containsNarrativeVoice(summary) ||
-    missesImportantProperNames(chapter, summary)
+    missesImportantProperNames(story, chapter, summary) ||
+    looksLikeGenericFallbackSummary(summary) ||
+    containsSourceNoise(summary)
+  );
+}
+
+function looksLikeGenericFallbackSummary(summary) {
+  const normalizedSummary = normalizeWhitespace(summary).toLowerCase();
+  if (!normalizedSummary) {
+    return true;
+  }
+
+  return GENERIC_FALLBACK_PATTERNS.some((pattern) => pattern.test(normalizedSummary));
+}
+
+function containsSourceNoise(summary) {
+  const normalizedSummary = normalizeWhitespace(summary).toLowerCase();
+  if (!normalizedSummary) {
+    return true;
+  }
+
+  return (
+    normalizedSummary.includes("dưới đây là nội dung văn bản từ hình ảnh bạn đã gửi") ||
+    normalizedSummary.includes("duoi day la noi dung van ban tu hinh anh ban da gui") ||
+    normalizedSummary.includes("đọc truyện") ||
+    normalizedSummary.includes("doc truyen") ||
+    normalizedSummary.includes("chương mới nhất") ||
+    normalizedSummary.includes("chuong moi nhat")
   );
 }
 
@@ -676,8 +858,8 @@ function containsNarrativeVoice(summary) {
   );
 }
 
-function missesImportantProperNames(chapter, summary) {
-  const candidateProperNames = extractCandidateProperNames(chapter);
+function missesImportantProperNames(story, chapter, summary) {
+  const candidateProperNames = extractCandidateProperNames(story, chapter);
   if (candidateProperNames.length === 0) {
     return false;
   }
@@ -742,6 +924,45 @@ function resolveImageMimeType(contentType, imageUrl) {
 
 function normalizeWhitespace(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function splitSummarySentences(value) {
+  const normalized = normalizeWhitespace(value).replace(/([.!?])(?=[^\s])/g, "$1 ");
+  const matches = normalized.match(/[^.!?]+(?:[.!?]+|$)/g);
+  const sentences = Array.isArray(matches) ? matches : [normalized];
+
+  return sentences
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function truncateSummaryText(value, maxLength) {
+  const normalized = normalizeWhitespace(value);
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.length <= maxLength) {
+    return ensureSentenceEnding(normalized);
+  }
+
+  let shortened = normalized.slice(0, maxLength).trim();
+  const lastSpaceIndex = shortened.lastIndexOf(" ");
+  if (lastSpaceIndex >= Math.floor(maxLength * 0.6)) {
+    shortened = shortened.slice(0, lastSpaceIndex).trim();
+  }
+
+  shortened = shortened.replace(/[\s,;:.-]+$/g, "").trim();
+  return ensureSentenceEnding(shortened);
+}
+
+function ensureSentenceEnding(value) {
+  const normalized = normalizeWhitespace(value);
+  if (!normalized) {
+    return "";
+  }
+
+  return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
 }
 
 function truncate(value, maxLength) {

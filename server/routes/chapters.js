@@ -422,6 +422,29 @@ router.put(
   }),
 );
 
+router.post(
+  "/:id/summary",
+  requireAuth,
+  requireRoles("ROLE_ADMIN"),
+  asyncHandler(async (req, res) => {
+    const chapter = await Chapter.findById(req.params.id);
+    if (!chapter) {
+      throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y chÃ†Â°Ã†Â¡ng!");
+    }
+
+    const story = await Story.findById(chapter.storyId).lean();
+    if (!story) {
+      throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    }
+
+    chapter.summary = await generateSummary(serializeDoc(story), chapter);
+    chapter.updatedAt = new Date();
+    await chapter.save();
+
+    res.json(serializeDoc(chapter));
+  }),
+);
+
 router.put(
   "/:id/approval",
   requireAuth,

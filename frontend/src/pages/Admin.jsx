@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   getAdminStats, getManageStories, getCategories, getAuthors, getReports, getManageChaptersByStory,
   getStoriesForReview, getChaptersForReview,
   createStory, updateStory, deleteStory,
   createCategory, updateCategory, deleteCategory,
-  createChapter, updateChapter, deleteChapter,
+  createChapter, updateChapter, deleteChapter, generateChapterSummary,
   reviewStory, reviewChapter,
-  updateReportStatus, uploadImage, uploadMangaPages
+  importRemoteMangaPages, scanRemoteMangaSource, updateReportStatus, uploadImage, uploadMangaPages
 } from '../services/api';
 import api from '../services/api';
 import { toast, toastFromError } from '../services/toast';
@@ -68,6 +68,14 @@ const EMPTY_STORY_FORM = {
   supportEnabled: false,
 };
 
+const EMPTY_SCAN_RESULT = {
+  title: '',
+  totalImages: 0,
+  images: [],
+  puppeteerAvailable: false,
+  failures: [],
+};
+
 export default function Admin() {
   const { user, isAdmin, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -111,12 +119,20 @@ export default function Admin() {
     accessPrice: 0,
   });
   const [editChapterId, setEditChapterId] = useState(null);
+  const [summaryGeneratingChapterIds, setSummaryGeneratingChapterIds] = useState([]);
   const [selectedStoryChapters, setSelectedStoryChapters] = useState([]);
   const [selectedStoryId, setSelectedStoryId] = useState('');
   const [mangaFiles, setMangaFiles] = useState([]);
   const [mangaPreviews, setMangaPreviews] = useState([]);
   const [pagesUploading, setPagesUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
+  const [importSourceUrl, setImportSourceUrl] = useState('');
+  const [scanUsePuppeteer, setScanUsePuppeteer] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [remoteImportBusy, setRemoteImportBusy] = useState(false);
+  const [scanMessage, setScanMessage] = useState('');
+  const [scanResult, setScanResult] = useState({ ...EMPTY_SCAN_RESULT });
+  const [selectedScannedImages, setSelectedScannedImages] = useState([]);
   const mangaInputRef = useRef(null);
 
   useEffect(() => {
@@ -133,6 +149,32 @@ export default function Admin() {
 
   const notifySuccess = (message) => {
     toast.success(message);
+  };
+
+  const resetScanState = () => {
+    setImportSourceUrl('');
+    setScanUsePuppeteer(false);
+    setScanBusy(false);
+    setRemoteImportBusy(false);
+    setScanMessage('');
+    setScanResult({ ...EMPTY_SCAN_RESULT });
+    setSelectedScannedImages([]);
+  };
+
+  const toggleScannedImageSelection = (imageUrl) => {
+    setSelectedScannedImages((prev) =>
+      prev.includes(imageUrl)
+        ? prev.filter((value) => value !== imageUrl)
+        : [...prev, imageUrl],
+    );
+  };
+
+  const selectAllScannedImages = () => {
+    setSelectedScannedImages(Array.isArray(scanResult.images) ? [...scanResult.images] : []);
+  };
+
+  const clearScannedImageSelection = () => {
+    setSelectedScannedImages([]);
   };
 
   const loadData = async () => {
@@ -181,13 +223,132 @@ export default function Admin() {
     setUploadProgress(`Đang upload ${mangaFiles.length} ảnh...`);
     try {
       const res = await uploadMangaPages(mangaFiles);
-      setChapterForm(prev => ({ ...prev, pages: [...prev.pages, ...res.data.urls] }));
+      setChapterForm(prev => ({
+        ...prev,
+        pages: Array.from(new Set([...(prev.pages || []), ...(res.data.urls || [])])),
+      }));
       setUploadProgress(`✅ Upload ${res.data.urls.length} ảnh thành công!`);
       setMangaFiles([]); setMangaPreviews([]);
+      if (mangaInputRef.current) {
+        mangaInputRef.current.value = '';
+      }
     } catch (err) {
       setUploadProgress('❌ Upload thất bại: ' + (err.response?.data?.message || err.message));
     }
     setPagesUploading(false);
+  };
+
+  const handleScanRemotePages = async () => {
+    const sourceUrl = importSourceUrl.trim();
+    if (!sourceUrl) {
+      alert('Hay nhap URL chuong manga can quet.');
+      return;
+    }
+
+    setScanBusy(true);
+    setScanMessage('Dang quet anh tu trang nguon...');
+    setScanResult({ ...EMPTY_SCAN_RESULT });
+    setSelectedScannedImages([]);
+
+    try {
+      const response = await scanRemoteMangaSource({
+        url: sourceUrl,
+        usePuppeteer: scanUsePuppeteer,
+      });
+      const result = response.data || EMPTY_SCAN_RESULT;
+      const nextImages = Array.isArray(result.images) ? result.images : [];
+
+      setScanResult({
+        title: result.title || '',
+        totalImages: Number(result.totalImages || nextImages.length || 0),
+        images: nextImages,
+        puppeteerAvailable: Boolean(result.puppeteerAvailable),
+        failures: [],
+      });
+      setSelectedScannedImages(nextImages);
+
+      if (!chapterForm.title.trim() && result.title && result.title !== 'manga-chapter') {
+        setChapterForm(prev => ({ ...prev, title: result.title }));
+      }
+
+      if (nextImages.length > 0) {
+        setScanMessage(
+          `Da quet duoc ${nextImages.length} anh${
+            scanUsePuppeteer && !result.puppeteerAvailable
+              ? ' (Puppeteer chua duoc cai, da dung che do HTML thuong).'
+              : '.'
+          }`,
+        );
+      } else {
+        setScanMessage('Khong tim thay anh phu hop tren trang nay.');
+      }
+    } catch (err) {
+      setScanResult({ ...EMPTY_SCAN_RESULT });
+      setSelectedScannedImages([]);
+      setScanMessage(err.response?.data?.message || err.message);
+      notifyApiError(err, 'KhÃ´ng quÃ©t Ä‘Æ°á»£c áº£nh tá»« URL nÃ y.');
+    } finally {
+      setScanBusy(false);
+    }
+  };
+
+  const handleImportRemotePages = async () => {
+    const sourceUrl = importSourceUrl.trim();
+    const scannedImages = Array.isArray(selectedScannedImages) ? selectedScannedImages : [];
+
+    if (!sourceUrl) {
+      alert('Hay nhap URL nguon truoc.');
+      return;
+    }
+
+    if (!scannedImages.length) {
+      alert('Chua co anh nao de import.');
+      return;
+    }
+
+    setRemoteImportBusy(true);
+    setScanMessage('Dang import anh len web cua ban...');
+    try {
+      const response = await importRemoteMangaPages(sourceUrl, scannedImages, {
+        onBatchComplete: ({ batchIndex, totalBatches, uploadedCount, totalImages }) => {
+          setScanMessage(
+            `Dang import lo ${batchIndex + 1}/${totalBatches} (${uploadedCount}/${totalImages} anh)...`,
+          );
+        },
+      });
+
+      const importedUrls = response.data?.urls || [];
+      const failures = response.data?.failures || [];
+
+      if (importedUrls.length) {
+        setChapterForm(prev => ({
+          ...prev,
+          pages: Array.from(new Set([...(prev.pages || []), ...importedUrls])),
+        }));
+      }
+
+      setScanResult(prev => ({
+        ...prev,
+        failures,
+      }));
+
+      if (failures.length > 0) {
+        setScanMessage(
+          `Da import ${importedUrls.length} anh. Loi ${failures.length} anh, xem chi tiet ben duoi.`,
+        );
+      } else {
+        setScanMessage(`Da import ${importedUrls.length} anh len web cua ban.`);
+      }
+
+      if (importedUrls.length > 0) {
+        notifySuccess(`ÄÃ£ import ${importedUrls.length} áº£nh manga.`);
+      }
+    } catch (err) {
+      setScanMessage(err.response?.data?.message || err.message);
+      notifyApiError(err, 'KhÃ´ng import Ä‘Æ°á»£c áº£nh tá»« web khÃ¡c.');
+    } finally {
+      setRemoteImportBusy(false);
+    }
   };
 
   // ===== STORY =====
@@ -340,6 +501,10 @@ export default function Admin() {
         accessPrice: 0,
       });
       setMangaFiles([]); setMangaPreviews([]); setUploadProgress('');
+      resetScanState();
+      if (mangaInputRef.current) {
+        mangaInputRef.current.value = '';
+      }
       if (selectedStoryId) handleLoadChapters(selectedStoryId);
       loadData();
       notifySuccess(editChapterId ? 'Đã cập nhật chương.' : 'Đã tạo chương mới.');
@@ -355,6 +520,31 @@ export default function Admin() {
       notifySuccess('Đã xóa chương.');
     } catch (e) {
       notifyApiError(e, 'Không xóa được chương.');
+    }
+  };
+
+  const handleGenerateChapterSummary = async (chapter) => {
+    if (!chapter?.id) {
+      return;
+    }
+
+    setSummaryGeneratingChapterIds((prev) =>
+      prev.includes(chapter.id) ? prev : [...prev, chapter.id],
+    );
+
+    try {
+      const response = await generateChapterSummary(chapter.id);
+      const nextChapter = response.data;
+
+      setSelectedStoryChapters((prev) =>
+        prev.map((item) => (item.id === nextChapter.id ? nextChapter : item)),
+      );
+
+      notifySuccess(`Đã tạo tóm tắt cho Ch.${chapter.chapterNumber}.`);
+    } catch (e) {
+      notifyApiError(e, 'Không tạo được tóm tắt AI cho chương này.');
+    } finally {
+      setSummaryGeneratingChapterIds((prev) => prev.filter((id) => id !== chapter.id));
     }
   };
 
@@ -642,6 +832,10 @@ export default function Admin() {
               <button className="btn btn-primary" onClick={() => {
                 setShowChapterForm(true); setEditChapterId(null);
                 setMangaFiles([]); setMangaPreviews([]); setUploadProgress('');
+                resetScanState();
+                if (mangaInputRef.current) {
+                  mangaInputRef.current.value = '';
+                }
                 setChapterForm({
                   storyId: selectedStoryId,
                   chapterNumber: selectedStoryChapters.length + 1,
@@ -661,6 +855,21 @@ export default function Admin() {
                   <li key={ch.id} className="chapter-item">
                     <span className="chapter-title">Ch.{ch.chapterNumber}: {ch.title} {ch.pages?.length > 0 ? `(${ch.pages.length} trang ảnh)` : ''}</span>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button
+                        className="btn btn-sm btn-outline"
+                        onClick={() => handleGenerateChapterSummary(ch)}
+                        disabled={summaryGeneratingChapterIds.includes(ch.id)}
+                        title="Tạo lại tóm tắt AI cho chương"
+                      >
+                        {summaryGeneratingChapterIds.includes(ch.id) ? 'Đang tóm tắt...' : 'Tóm tắt'}
+                      </button>
+                      <Link
+                        to={`/story/${ch.storyId}/chapter/${ch.id}`}
+                        className="btn btn-sm btn-outline"
+                        title="Xem chương"
+                      >
+                        Xem
+                      </Link>
                       <span
                         className="status-badge"
                         style={{
@@ -695,6 +904,10 @@ export default function Admin() {
                           accessPrice: ch.accessPrice || 0,
                         });
                         setMangaFiles([]); setMangaPreviews([]); setUploadProgress('');
+                        resetScanState();
+                        if (mangaInputRef.current) {
+                          mangaInputRef.current.value = '';
+                        }
                         setEditChapterId(ch.id); setShowChapterForm(true);
                       }}>Sửa</button>
                       <button className="btn btn-sm btn-danger" onClick={() => handleDeleteChapter(ch.id)}>Xóa</button>
@@ -917,7 +1130,7 @@ export default function Admin() {
 
       {/* ===== CHAPTER FORM MODAL ===== */}
       {showChapterForm && (
-        <div className="modal-overlay" onClick={() => setShowChapterForm(false)}>
+        <div className="modal-overlay" onClick={() => { setShowChapterForm(false); resetScanState(); }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '750px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2>{editChapterId ? 'Sửa chương' : 'Thêm chương mới'}
               <span style={{
@@ -972,6 +1185,198 @@ export default function Admin() {
               <div className="form-group">
                 <label>🎨 Trang ảnh chương manga</label>
 
+                <div style={{
+                  marginBottom: '1rem',
+                  padding: '1rem',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-secondary)',
+                }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+                    Quet va import anh tu URL ngoai
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div style={{ flex: '1 1 320px' }}>
+                      <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.82rem' }}>
+                        URL chuong manga tu web khac
+                      </label>
+                      <input
+                        className="form-control"
+                        placeholder="https://..."
+                        value={importSourceUrl}
+                        onChange={e => setImportSourceUrl(e.target.value)}
+                      />
+                    </div>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.45rem',
+                        fontSize: '0.82rem',
+                        color: 'var(--text-secondary)',
+                        minHeight: '42px',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={scanUsePuppeteer}
+                        onChange={e => setScanUsePuppeteer(e.target.checked)}
+                      />
+                      Thu Puppeteer
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      type="button"
+                      onClick={handleScanRemotePages}
+                      disabled={scanBusy || remoteImportBusy || pagesUploading}
+                    >
+                      {scanBusy ? 'Dang quet...' : 'Quet anh tu URL'}
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      type="button"
+                      onClick={handleImportRemotePages}
+                      disabled={
+                        scanBusy ||
+                        remoteImportBusy ||
+                        pagesUploading ||
+                        !Array.isArray(selectedScannedImages) ||
+                        selectedScannedImages.length === 0
+                      }
+                    >
+                      {remoteImportBusy
+                        ? 'Dang import...'
+                        : `Import ${selectedScannedImages.length} anh len web`}
+                    </button>
+                  </div>
+                  {scanMessage && (
+                    <p style={{ margin: '0.75rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                      {scanMessage}
+                    </p>
+                  )}
+                  {scanResult.title && (
+                    <p style={{ margin: '0.45rem 0 0', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                      Tieu de quet duoc: <strong style={{ color: 'var(--text-primary)' }}>{scanResult.title}</strong>
+                    </p>
+                  )}
+                  {Array.isArray(scanResult.images) && scanResult.images.length > 0 && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          gap: '0.75rem',
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                          marginBottom: '0.5rem',
+                        }}
+                      >
+                        <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                          Da tim thay {scanResult.images.length} anh. Da chon {selectedScannedImages.length} anh de import.
+                        </p>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <button className="btn btn-outline btn-sm" type="button" onClick={selectAllScannedImages}>
+                            Chon tat ca
+                          </button>
+                          <button className="btn btn-outline btn-sm" type="button" onClick={clearScannedImageSelection}>
+                            Bo chon het
+                          </button>
+                        </div>
+                      </div>
+                      <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        Bam vao tung anh de chon hoac bo chon truoc khi import.
+                      </p>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
+                          gap: '0.5rem',
+                          maxHeight: '360px',
+                          overflowY: 'auto',
+                          paddingRight: '0.25rem',
+                        }}
+                      >
+                        {scanResult.images.map((imageUrl, index) => {
+                          const isSelected = selectedScannedImages.includes(imageUrl);
+                          return (
+                            <button
+                              key={`${imageUrl}-${index}`}
+                              type="button"
+                              onClick={() => toggleScannedImageSelection(imageUrl)}
+                              style={{
+                                border: isSelected ? '2px solid var(--accent)' : '1px solid var(--border)',
+                                borderRadius: '8px',
+                                overflow: 'hidden',
+                                background: 'var(--bg-primary)',
+                                padding: 0,
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                boxShadow: isSelected ? '0 0 0 2px rgba(99, 102, 241, 0.15)' : 'none',
+                              }}
+                            >
+                              <img
+                                src={imageUrl}
+                                alt={`Scanned page ${index + 1}`}
+                                style={{
+                                  width: '100%',
+                                  height: '110px',
+                                  objectFit: 'cover',
+                                  display: 'block',
+                                  opacity: isSelected ? 1 : 0.45,
+                                }}
+                                loading="lazy"
+                              />
+                              <div
+                                style={{
+                                  padding: '0.35rem',
+                                  fontSize: '0.72rem',
+                                  color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  gap: '0.35rem',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <span>Trang {index + 1}</span>
+                                <span style={{ color: isSelected ? 'var(--success)' : 'var(--text-secondary)' }}>
+                                  {isSelected ? 'Da chon' : 'Bo chon'}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {Array.isArray(scanResult.failures) && scanResult.failures.length > 0 && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <p style={{ margin: '0 0 0.45rem', color: 'var(--warning)', fontSize: '0.82rem' }}>
+                        Mot so anh import loi:
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        {scanResult.failures.slice(0, 5).map((failure, index) => (
+                          <div
+                            key={`${failure.url || 'failure'}-${index}`}
+                            style={{
+                              fontSize: '0.76rem',
+                              color: 'var(--text-secondary)',
+                              padding: '0.55rem 0.7rem',
+                              borderRadius: '8px',
+                              background: 'var(--bg-primary)',
+                              border: '1px solid var(--border)',
+                              wordBreak: 'break-word',
+                            }}
+                          >
+                            {failure.message}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Upload area */}
                 <div style={{
                   border: '2px dashed var(--badge-manga-bg)', borderRadius: '12px', padding: '1.5rem',
@@ -988,7 +1393,7 @@ export default function Admin() {
                   <div style={{ marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                       <p style={{ fontSize: '0.85rem', fontWeight: 600 }}>📸 {mangaFiles.length} ảnh đã chọn</p>
-                      <button className="btn btn-primary btn-sm" onClick={handleUploadMangaPages} disabled={pagesUploading}>
+                      <button className="btn btn-primary btn-sm" onClick={handleUploadMangaPages} disabled={pagesUploading || scanBusy || remoteImportBusy}>
                         {pagesUploading ? '⏳ Đang upload...' : `☁️ Upload lên Cloudinary`}
                       </button>
                     </div>
@@ -1029,8 +1434,8 @@ export default function Admin() {
             )}
 
             <div className="modal-actions">
-              <button className="btn btn-outline" onClick={() => setShowChapterForm(false)}>Hủy</button>
-              <button className="btn btn-primary" onClick={handleSaveChapter} disabled={pagesUploading}>Lưu</button>
+              <button className="btn btn-outline" onClick={() => { setShowChapterForm(false); resetScanState(); }}>Hủy</button>
+              <button className="btn btn-primary" onClick={handleSaveChapter} disabled={pagesUploading || scanBusy || remoteImportBusy}>Lưu</button>
             </div>
           </div>
         </div>

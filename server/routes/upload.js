@@ -1,19 +1,14 @@
 const express = require("express");
 const multer = require("multer");
-const { Readable } = require("stream");
-const { v2: cloudinary } = require("cloudinary");
-const env = require("../config/env");
 const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth, requireRoles } = require("../middleware/auth");
 const httpError = require("../utils/httpError");
+const {
+  ensureCloudinaryConfigured,
+  uploadBuffer,
+} = require("../services/cloudinaryUploadService");
 
 const router = express.Router();
-
-cloudinary.config({
-  cloud_name: env.cloudinaryCloudName,
-  api_key: env.cloudinaryApiKey,
-  api_secret: env.cloudinaryApiSecret,
-});
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -23,25 +18,6 @@ const upload = multer({
   },
 });
 
-function uploadBuffer(buffer, options) {
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(options, (error, result) => {
-      if (error) {
-        return reject(error);
-      }
-      return resolve(result);
-    });
-
-    Readable.from(buffer).pipe(stream);
-  });
-}
-
-function ensureCloudinaryConfigured() {
-  if (!env.isCloudinaryConfigured) {
-    throw httpError(503, "Tải lên thất bại: Cloudinary chưa được cấu hình.");
-  }
-}
-
 router.post(
   "/image",
   requireAuth,
@@ -50,7 +26,7 @@ router.post(
   asyncHandler(async (req, res) => {
     ensureCloudinaryConfigured();
     if (!req.file) {
-      throw httpError(400, "Tải lên thất bại: Thiếu tệp.");
+      throw httpError(400, "Tai len that bai: Thieu tep.");
     }
 
     const result = await uploadBuffer(req.file.buffer, {
@@ -70,7 +46,7 @@ router.post(
   asyncHandler(async (req, res) => {
     ensureCloudinaryConfigured();
     if (!req.files || req.files.length === 0) {
-      throw httpError(400, "Tải lên thất bại: Thiếu tệp.");
+      throw httpError(400, "Tai len that bai: Thieu tep.");
     }
 
     const urls = [];

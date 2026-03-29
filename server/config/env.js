@@ -64,12 +64,28 @@ function pickValue(envKey, propertyKey, fallback = "") {
     return envValue;
   }
 
+  const dottedEnvValue = process.env[propertyKey];
+  if (dottedEnvValue !== undefined && dottedEnvValue !== "") {
+    return dottedEnvValue;
+  }
+
   const propertyValue = legacyProperties[propertyKey];
   if (propertyValue !== undefined && propertyValue !== "") {
     return propertyValue;
   }
 
   return fallback;
+}
+
+function pickAnyEnvValue(envKeys = []) {
+  for (const envKey of envKeys) {
+    const envValue = process.env[envKey];
+    if (envValue !== undefined && envValue !== "") {
+      return envValue;
+    }
+  }
+
+  return "";
 }
 
 function parseBoolean(value, fallback = false) {
@@ -86,6 +102,10 @@ function parseInteger(value, fallback) {
 }
 
 const port = parseInteger(pickValue("PORT", "server.port", "8080"), 8080);
+const aiSummaryApiKey =
+  pickValue("AI_SUMMARY_API_KEY", "app.ai.summary.api-key") ||
+  pickAnyEnvValue(["GEMINI_API_KEY", "GOOGLE_API_KEY"]);
+const aiSummaryEnabledDefault = aiSummaryApiKey ? "true" : "false";
 
 const env = {
   nodeEnv: process.env.NODE_ENV || "development",
@@ -157,10 +177,10 @@ const env = {
   ),
   aiSummary: {
     enabled: parseBoolean(
-      pickValue("AI_SUMMARY_ENABLED", "app.ai.summary.enabled", "false"),
+      pickValue("AI_SUMMARY_ENABLED", "app.ai.summary.enabled", aiSummaryEnabledDefault),
       false,
     ),
-    apiKey: pickValue("AI_SUMMARY_API_KEY", "app.ai.summary.api-key"),
+    apiKey: aiSummaryApiKey,
     baseUrl: pickValue(
       "AI_SUMMARY_BASE_URL",
       "app.ai.summary.base-url",
