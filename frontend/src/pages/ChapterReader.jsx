@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
+import CommentComposer from '../components/CommentComposer';
 import CommentIdentity from '../components/CommentIdentity';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -21,8 +22,6 @@ import {
   saveReadingHistory,
 } from '../services/api';
 import { toast, toastFromError } from '../services/toast';
-
-const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
 
 function splitChapterContentIntoParagraphs(content) {
   if (!content) {
@@ -771,14 +770,6 @@ export default function ChapterReader() {
   const [chapters, setChapters] = useState([]);
   const [comments, setComments] = useState([]);
   const [visibleCount, setVisibleCount] = useState(5);
-  const [newComment, setNewComment] = useState('');
-  const [showGifPicker, setShowGifPicker] = useState(false);
-  const [gifSearch, setGifSearch] = useState('');
-  const [gifResults, setGifResults] = useState([]);
-  const [gifLoading, setGifLoading] = useState(false);
-  const [selectedGifUrl, setSelectedGifUrl] = useState(null);
-  const [selectedGifSize, setSelectedGifSize] = useState(null);
-  const [gifError, setGifError] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -793,7 +784,6 @@ export default function ChapterReader() {
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteStatus, setNoteStatus] = useState('');
   const [missionUpdate, setMissionUpdate] = useState(null);
-  const searchTimer = useRef(null);
   const noteSaveTimer = useRef(null);
   const noteHydratedRef = useRef(false);
   const lastSavedNoteRef = useRef('');
@@ -831,7 +821,6 @@ export default function ChapterReader() {
 
   useEffect(() => {
     return () => {
-      if (searchTimer.current) clearTimeout(searchTimer.current);
       if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current);
     };
   }, []);
@@ -1235,13 +1224,25 @@ export default function ChapterReader() {
     };
   }, [isManga, showReadingNote]);
 
-  const handleComment = async () => {
-    if (!user) return alert('Vui lòng đăng nhập!');
-    if (!newComment.trim() && !selectedGifUrl) return;
+  const handleComment = async ({ content, gifUrl, gifSize }) => {
+    const newComment = content || '';
+    const selectedGifUrl = gifUrl || null;
+    const selectedGifSize = gifSize || null;
+
+    if (!user) {
+      alert('Vui lòng đăng nhập!');
+      return false;
+    }
+
+    if (!newComment.trim() && !selectedGifUrl) {
+      return false;
+    }
+
     if (selectedGifSize && selectedGifSize > 2 * 1024 * 1024) {
       alert('GIF lớn hơn 2MB, vui lòng chọn GIF nhỏ hơn.');
-      return;
+      return false;
     }
+
     try {
       setSending(true);
       await createComment({
@@ -1252,60 +1253,21 @@ export default function ChapterReader() {
         gifUrl: selectedGifUrl || null,
         gifSize: selectedGifSize || null,
       });
+      const cmRes = await getCommentsByStory(storyId);
+      setComments(cmRes.data);
+      setVisibleCount(5);
+      toast.success('Đã gửi bình luận.');
+      return true;
     } catch (e) {
       if (e?.response?.status === 401) {
         alert('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        setSending(false);
-        return;
+        return false;
       }
-      setSending(false);
       toastFromError(e, 'Không gửi được bình luận.');
-      return;
+      return false;
+    } finally {
+      setSending(false);
     }
-    setNewComment('');
-    setSelectedGifUrl(null);
-    setSelectedGifSize(null);
-    setShowGifPicker(false);
-    const cmRes = await getCommentsByStory(storyId);
-    setComments(cmRes.data);
-    setVisibleCount(5);
-    toast.success('Đã gửi bình luận.');
-    setSending(false);
-  };
-
-  const searchGifs = async (keyword) => {
-    const q = keyword.trim();
-    if (q.startsWith('http') || q.length > 80) {
-      setGifError('Từ khóa quá dài hoặc là một URL, hãy nhập từ khóa ngắn.');
-      setGifResults([]);
-      return;
-    }
-    setGifError('');
-    if (!q) return loadTrendingGifs();
-    setGifLoading(true);
-    try {
-      const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(q)}&limit=12&rating=g`);
-      const data = await res.json();
-      setGifResults(data.data || []);
-    } catch (e) {
-      console.error(e);
-      setGifError('Không tải được GIF. Thử lại sau.');
-    }
-    setGifLoading(false);
-  };
-
-  const loadTrendingGifs = async () => {
-    setGifError('');
-    setGifLoading(true);
-    try {
-      const res = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=12&rating=g`);
-      const data = await res.json();
-      setGifResults(data.data || []);
-    } catch (e) {
-      console.error(e);
-      setGifError('Không tải được GIF nổi bật.');
-    }
-    setGifLoading(false);
   };
 
   if (loading) return <div className="loading"><div className="spinner" />Đang tải...</div>;
@@ -1989,109 +1951,16 @@ export default function ChapterReader() {
       <div className="chapter-reader-comments" style={{ maxWidth: '750px', margin: '0 auto', padding: '1rem' }}>
         <div className="card">
           <h3>💬 Bình luận truyện ({visibleComments.length})</h3>
-          <div className="chapter-comment-toolbar" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.75rem' }}>
-            <input
-              className="form-control"
-              style={{ flex: 1 }}
-              placeholder="Viết bình luận..."
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleComment()}
-            />
-            <button
-              className="btn btn-outline"
-              style={{ minWidth: '64px' }}
-              onClick={() => {
-                setShowGifPicker((v) => !v);
-                if (!showGifPicker) {
-                  setGifResults([]);
-                  setGifSearch('');
-                  loadTrendingGifs();
-                }
-              }}
-            >
-              GIF
-            </button>
-            <button className="btn btn-primary" onClick={handleComment} disabled={sending}>Gửi</button>
-          </div>
-          {selectedGifUrl && (
-            <div className="chapter-gif-preview" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
-              <img src={selectedGifUrl} alt="gif" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: '8px' }} />
-              <button className="btn btn-outline" onClick={() => { setSelectedGifUrl(null); setSelectedGifSize(null); }}>Xóa GIF</button>
-            </div>
-          )}
-          {showGifPicker && (
-            <div style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '0.75rem', marginBottom: '1rem', background: 'var(--bg-card)' }}>
-              <div className="chapter-gif-search" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <input
-                  className="form-control"
-                  placeholder="Tìm GIF..."
-                  value={gifSearch}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (searchTimer.current) clearTimeout(searchTimer.current);
-                    searchTimer.current = setTimeout(() => searchGifs(value), 350);
-                    setGifSearch(value);
-                  }}
-                />
-                <button className="btn btn-outline" onClick={() => searchGifs(gifSearch)}>Tìm</button>
-              </div>
-              {gifError && <p style={{ color: 'var(--warning)', margin: '0 0 0.4rem 0' }}>{gifError}</p>}
-              {gifLoading && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>?ang t?i GIF...</p>}
-              {!gifLoading && !gifError && (
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-                  {['funny', 'meme', 'wow', 'sad', 'celebrate', 'cute'].map((tag) => (
-                    <button
-                      key={tag}
-                      className="btn btn-outline"
-                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
-                      onClick={() => { setGifSearch(tag); searchGifs(tag); }}
-                    >
-                      #{tag}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="chapter-gif-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '0.4rem', maxHeight: '260px', overflowY: 'auto' }}>
-                {gifResults.map((g) => (
-                  <div key={g.id} style={{ position: 'relative', width: '100%', height: '90px' }}>
-                    <div style={{
-                      position: 'absolute', inset: 0,
-                      background: 'var(--bg-card)', border: '1px solid var(--border)',
-                      borderRadius: '8px', opacity: 0.4
-                    }} />
-                    <img
-                      src={g.images?.downsized?.url}
-                      alt={g.title}
-                      loading="lazy"
-                      style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '8px', cursor: 'pointer', border: selectedGifUrl === g.images?.downsized?.url ? '2px solid var(--accent)' : '1px solid var(--border)' }}
-                      onLoad={(e) => { e.currentTarget.previousSibling.style.display = 'none'; }}
-                      onClick={() => {
-                        const size = parseInt(g.images?.downsized?.size || '0', 10);
-                        if (size > 2 * 1024 * 1024) {
-                          alert('GIF lớn hơn 2MB, chọn GIF khác.');
-                          return;
-                        }
-                        const probe = new Image();
-                        probe.onload = () => {
-                          setSelectedGifUrl(g.images?.downsized?.url);
-                          setSelectedGifSize(size || null);
-                          setShowGifPicker(false);
-                        };
-                        probe.onerror = () => alert('Không tải được GIF này, thử cái khác.');
-                        probe.src = g.images?.downsized?.url;
-                      }}
-                      onError={(e) => {
-                        const fallback = g.images?.downsized?.url;
-                        if (fallback && e.target.src !== fallback) e.target.src = fallback;
-                      }}
-                    />
-                  </div>
-                ))}
-                {!gifLoading && gifResults.length === 0 && gifSearch && <p style={{ color: 'var(--text-secondary)' }}>Không tìm thấy GIF.</p>}
-              </div>
-            </div>
-          )}
+          <CommentComposer
+            placeholder="Viết bình luận..."
+            submitting={sending}
+            onSubmit={handleComment}
+            toolbarClassName="chapter-comment-toolbar"
+            toolbarStyle={{ marginTop: '0.75rem' }}
+            previewClassName="chapter-gif-preview"
+            searchClassName="chapter-gif-search"
+            gridClassName="chapter-gif-grid"
+          />
           {visibleComments.slice(0, visibleCount).map((c) => (
             <div key={c.id} style={{ padding: '0.8rem', borderBottom: '1px solid var(--border)', marginBottom: '0.4rem' }}>
               <div
@@ -2133,6 +2002,7 @@ export default function ChapterReader() {
                   src={c.gifUrl}
                   alt="gif"
                   loading="lazy"
+                  decoding="async"
                   style={{
                     marginTop: '0.35rem',
                     width: '180px',
