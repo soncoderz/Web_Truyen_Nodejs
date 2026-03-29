@@ -12,12 +12,29 @@ import { toast } from '../services/toast';
 import { useTheme } from '../context/ThemeContext';
 
 function getNotificationTarget(notification) {
+  const params = new URLSearchParams();
+  const hasPageIndex =
+    notification?.pageIndex !== null &&
+    notification?.pageIndex !== undefined &&
+    Number.isInteger(Number(notification.pageIndex));
+  if (notification?.commentId) {
+    params.set('comment', String(notification.commentId));
+  }
+  if (hasPageIndex) {
+    params.set('page', String(Number(notification.pageIndex) + 1));
+  }
+
   if (notification?.storyId && notification?.chapterId) {
-    return `/story/${notification.storyId}/chapter/${notification.chapterId}`;
+    const suffix = params.toString();
+    return `/story/${notification.storyId}/chapter/${notification.chapterId}${suffix ? `?${suffix}` : ''}`;
   }
 
   if (notification?.storyId) {
-    return `/story/${notification.storyId}`;
+    if (notification?.commentId) {
+      params.set('tab', 'comments');
+    }
+    const suffix = params.toString();
+    return `/story/${notification.storyId}${suffix ? `?${suffix}` : ''}`;
   }
 
   return null;
@@ -28,6 +45,13 @@ function getNotificationCover(notification) {
 }
 
 function getNotificationHeadline(notification) {
+  if (
+    notification?.type === 'COMMENT_REPLY' ||
+    notification?.type === 'COMMENT_MENTION'
+  ) {
+    return notification?.actorUsername || notification?.storyTitle || 'Bình luận mới';
+  }
+
   if (notification?.storyTitle) {
     return notification.storyTitle;
   }
@@ -36,6 +60,28 @@ function getNotificationHeadline(notification) {
 }
 
 function getNotificationSubline(notification) {
+  const hasPageIndex =
+    notification?.pageIndex !== null &&
+    notification?.pageIndex !== undefined &&
+    Number.isInteger(Number(notification.pageIndex));
+  if (
+    notification?.type === 'COMMENT_REPLY' ||
+    notification?.type === 'COMMENT_MENTION'
+  ) {
+    if (hasPageIndex) {
+      return `Trang ${Number(notification.pageIndex) + 1}`;
+    }
+
+    if (Number.isFinite(Number(notification?.chapterNumber))) {
+      const chapterTitle = String(notification?.chapterTitle || "").trim();
+      return chapterTitle
+        ? `Chuong ${notification.chapterNumber}: ${chapterTitle}`
+        : `Chuong ${notification.chapterNumber}`;
+    }
+
+    return 'Bình luận truyện';
+  }
+
   if (Number.isFinite(Number(notification?.chapterNumber))) {
     const chapterTitle = String(notification?.chapterTitle || "").trim();
     return chapterTitle
@@ -138,7 +184,12 @@ export default function Header() {
       setNotifications((items) => mergeNotification(items, notification));
       toast.info(notification?.message || 'Co thong bao moi.', {
         title: 'Thong bao moi',
-        actionLabel: notification?.chapterId ? 'Mo chuong' : 'Mo truyen',
+        actionLabel:
+          notification?.type === 'COMMENT_REPLY' || notification?.type === 'COMMENT_MENTION'
+            ? 'Mo binh luan'
+            : notification?.chapterId
+              ? 'Mo chuong'
+              : 'Mo truyen',
         imageUrl: getNotificationCover(notification),
         imageAlt: getNotificationHeadline(notification),
         imageFallback: getNotificationHeadline(notification),

@@ -220,10 +220,16 @@ export const updateReportStatus = (id, status) =>
   api.put(`/reports/${id}/status`, { status });
 
 // GIFs (Giphy proxy)
-export const searchGifs = (q, limit = 12) =>
-  api.get("/gifs/search", { params: { q, limit } });
-export const trendingGifs = (limit = 12) =>
-  api.get("/gifs/trending", { params: { limit } });
+export const searchGifs = (q, limit = 12, config = {}) =>
+  api.get("/gifs/search", {
+    params: { q, limit },
+    ...config,
+  });
+export const trendingGifs = (limit = 12, config = {}) =>
+  api.get("/gifs/trending", {
+    params: { limit },
+    ...config,
+  });
 
 // Admin
 export const getAdminStats = () => api.get("/admin/stats");
@@ -231,6 +237,8 @@ export const getTrendStats = () => api.get("/admin/stats/trends");
 export const getHotStories = (limit = 10) =>
   api.get("/stories/hot", { params: { limit } });
 export const getDistributionData = () => api.get("/admin/stats/distribution");
+export const getAdminComments = (params = {}) =>
+  api.get("/admin/comments", { params });
 
 // Upload (Cloudinary)
 export const uploadImage = (file) => {

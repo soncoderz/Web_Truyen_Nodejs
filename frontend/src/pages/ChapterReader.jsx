@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
-import CommentIdentity from '../components/CommentIdentity';
+import CommentThread from '../components/CommentThread';
 import ReactionBar from '../components/ReactionBar';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -18,6 +18,7 @@ import {
 } from '../services/realtime';
 import {
   createComment,
+  deleteComment,
   deleteReaderNote,
   getChapter,
   getChaptersByStory,
@@ -112,6 +113,101 @@ function removeComment(list, commentId) {
   );
 }
 
+function getVisibleThreadComments(list, visibleCount) {
+  const comments = Array.isArray(list) ? list : [];
+  if (!comments.length) {
+    return [];
+  }
+
+  const childrenByParentId = new Map();
+  const commentIds = new Set(comments.map((comment) => String(comment?.id || '')));
+
+  comments.forEach((comment) => {
+    const parentId = String(comment?.parentCommentId || '').trim();
+    if (!parentId || !commentIds.has(parentId)) {
+      return;
+    }
+
+    if (!childrenByParentId.has(parentId)) {
+      childrenByParentId.set(parentId, []);
+    }
+    childrenByParentId.get(parentId).push(String(comment.id));
+  });
+
+  const rootIds = comments
+    .filter((comment) => {
+      const parentId = String(comment?.parentCommentId || '').trim();
+      return !parentId || !commentIds.has(parentId);
+    })
+    .slice(0, visibleCount)
+    .map((comment) => String(comment.id));
+
+  const visibleIds = new Set();
+  const queue = [...rootIds];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    if (!currentId || visibleIds.has(currentId)) {
+      continue;
+    }
+
+    visibleIds.add(currentId);
+    queue.push(...(childrenByParentId.get(currentId) || []));
+  }
+
+  return comments.filter((comment) => visibleIds.has(String(comment?.id || '')));
+}
+
+function getRequiredVisibleRootCount(list, targetCommentId) {
+  const comments = Array.isArray(list) ? list : [];
+  const normalizedTargetCommentId = String(targetCommentId || '').trim();
+  if (!normalizedTargetCommentId || !comments.length) {
+    return 0;
+  }
+
+  const commentMap = new Map(
+    comments.map((comment) => [String(comment?.id || ''), comment]),
+  );
+  if (!commentMap.has(normalizedTargetCommentId)) {
+    return 0;
+  }
+
+  const rootIds = comments
+    .filter((comment) => {
+      const parentId = String(comment?.parentCommentId || '').trim();
+      return !parentId || !commentMap.has(parentId);
+    })
+    .map((comment) => String(comment.id));
+
+  let rootCommentId = normalizedTargetCommentId;
+  let guard = 0;
+
+  while (commentMap.has(rootCommentId) && guard < comments.length) {
+    const parentId = String(commentMap.get(rootCommentId)?.parentCommentId || '').trim();
+    if (!parentId || !commentMap.has(parentId)) {
+      break;
+    }
+    rootCommentId = parentId;
+    guard += 1;
+  }
+
+  const rootIndex = rootIds.indexOf(rootCommentId);
+  return rootIndex >= 0 ? rootIndex + 1 : 0;
+}
+
+function isTypingTarget(target) {
+  if (!target || typeof target.closest !== 'function') {
+    return false;
+  }
+
+  const tagName = String(target.tagName || '').toLowerCase();
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return true;
+  }
+
+  return Boolean(target.closest('[contenteditable="true"]'));
+}
+
 function MangaPageWithComments({
   page,
   idx,
@@ -127,6 +223,8 @@ function MangaPageWithComments({
   bookmarkBusy = false,
   noteBusy = false,
   initialComments = [],
+  initialOpen = false,
+  targetCommentId = '',
   showBookmarkToggle = true,
   showCommentToggle = true,
   onPageCommentsChange,
@@ -139,6 +237,8 @@ function MangaPageWithComments({
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState(initialComments);
   const [text, setText] = useState('');
+  const [replyTarget, setReplyTarget] = useState(null);
+  const [highlightedCommentId, setHighlightedCommentId] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [commentCount, setCommentCount] = useState(initialComments.length);
@@ -149,6 +249,7 @@ function MangaPageWithComments({
   const btnRef = useRef(null);
   const bookmarkBtnRef = useRef(null);
   const bookmarkPanelRef = useRef(null);
+  const autoOpenedTargetRef = useRef('');
   const bookmarkLabel = `Trang ${idx + 1}`;
   const savedPageNote = getBookmarkDisplayNote(noteItem?.note, bookmarkLabel);
   const fallbackBookmarkNote = getBookmarkDisplayNote(bookmarkItem?.note, bookmarkLabel);
@@ -157,6 +258,7 @@ function MangaPageWithComments({
   const hasPageNote = Boolean(noteText);
   const busy = bookmarkBusy || noteBusy;
   const accessToken = user?.accessToken || user?.token || null;
+  const focusedCommentIdRef = useRef('');
 
   useEffect(() => {
     setCommentCount(initialComments.length);
@@ -166,10 +268,35 @@ function MangaPageWithComments({
   }, [initialComments, open]);
 
   useEffect(() => {
+    if (!replyTarget?.id) {
+      return;
+    }
+
+    if (!comments.some((comment) => String(comment?.id || '') === String(replyTarget.id))) {
+      setReplyTarget(null);
+    }
+  }, [comments, replyTarget]);
+
+  useEffect(() => {
     if (!showCommentToggle) {
       setOpen(false);
     }
   }, [showCommentToggle]);
+
+  useEffect(() => {
+    if (!initialOpen || !showCommentToggle) {
+      return;
+    }
+
+    const autoOpenKey = `${chapterId || ''}:${idx}:${String(targetCommentId || 'open')}`;
+    if (autoOpenedTargetRef.current === autoOpenKey) {
+      return;
+    }
+
+    autoOpenedTargetRef.current = autoOpenKey;
+    setOpen(true);
+    loadPageComments();
+  }, [chapterId, idx, initialOpen, showCommentToggle, targetCommentId]);
 
   useEffect(() => {
     if (!showBookmarkToggle) {
@@ -202,6 +329,68 @@ function MangaPageWithComments({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !targetCommentId) {
+      focusedCommentIdRef.current = '';
+      setHighlightedCommentId('');
+      return undefined;
+    }
+
+    if (!comments.some((comment) => String(comment?.id || '') === String(targetCommentId))) {
+      focusedCommentIdRef.current = '';
+      return undefined;
+    }
+
+    if (focusedCommentIdRef.current === String(targetCommentId)) {
+      return undefined;
+    }
+
+    let highlightTimerId = null;
+    let retryTimerId = null;
+
+    const focusTargetComment = () => {
+      const targetNode = document.getElementById(
+        `page-comment-${chapterId}-${idx}-${targetCommentId}`,
+      );
+      if (!targetNode) {
+        return false;
+      }
+
+      targetNode.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+      focusedCommentIdRef.current = String(targetCommentId);
+      setHighlightedCommentId(String(targetCommentId));
+      highlightTimerId = window.setTimeout(() => {
+        setHighlightedCommentId((currentValue) =>
+          currentValue === String(targetCommentId) ? '' : currentValue,
+        );
+      }, 2600);
+      return true;
+    };
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      if (focusTargetComment()) {
+        return;
+      }
+
+      retryTimerId = window.setTimeout(() => {
+        focusTargetComment();
+      }, 260);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      if (retryTimerId) {
+        window.clearTimeout(retryTimerId);
+      }
+      if (highlightTimerId) {
+        window.clearTimeout(highlightTimerId);
+      }
+    };
+  }, [chapterId, comments, idx, open, targetCommentId]);
 
   useEffect(() => {
     if (!bookmarkOpen) {
@@ -316,10 +505,12 @@ function MangaPageWithComments({
         storyId,
         chapterId,
         pageIndex: idx,
+        parentCommentId: replyTarget?.id || null,
         content: text.trim(),
       });
       createdComment = response.data || null;
       setText('');
+      setReplyTarget(null);
       if (createdComment) {
         setComments((prev) => {
           const nextComments = prependComment(prev, createdComment);
@@ -334,6 +525,44 @@ function MangaPageWithComments({
       toastFromError(e, 'Không gửi được bình luận.');
     }
     setSending(false);
+  };
+
+  const handleReplyComment = (comment) => {
+    if (!comment?.id) {
+      return;
+    }
+
+    setReplyTarget(comment);
+    setText((currentValue) => {
+      if (String(currentValue || '').trim()) {
+        return currentValue;
+      }
+
+      return comment?.username ? `@${comment.username} ` : '';
+    });
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  };
+
+  const handleDeleteComment = async (comment) => {
+    if (!comment?.id) {
+      return;
+    }
+
+    if (!window.confirm('Xóa bình luận này?')) {
+      return;
+    }
+
+    try {
+      await deleteComment(comment.id);
+      if (String(replyTarget?.id || '') === String(comment.id)) {
+        setReplyTarget(null);
+      }
+      toast.success('Đã xóa bình luận.');
+    } catch (error) {
+      toastFromError(error, 'Không xóa được bình luận.');
+    }
   };
 
   const toggleBookmarkPanel = (event) => {
@@ -750,12 +979,12 @@ function MangaPageWithComments({
         ref={panelRef}
         style={{
           width: open ? '100%' : '0px',
-          maxWidth: open ? '340px' : '0px',
+          maxWidth: open ? '440px' : '0px',
           maxHeight: open ? '600px' : '0px',
           opacity: open ? 1 : 0,
           overflow: 'hidden',
           transition: 'max-width 0.3s ease, opacity 0.25s ease, max-height 0.3s ease',
-          flex: open ? '1 1 340px' : '0 0 0px',
+          flex: open ? '1 1 440px' : '0 0 0px',
           minWidth: 0,
         }}
       >
@@ -805,48 +1034,52 @@ function MangaPageWithComments({
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', textAlign: 'center', margin: '1rem 0' }}>
                   Đang tải...
                 </p>
-              ) : comments.length === 0 ? (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', textAlign: 'center', margin: '1.25rem 0' }}>
-                  Chưa có bình luận nào cho trang này.
-                </p>
               ) : (
-                comments.map((comment) => (
-                  <div key={comment.id} style={{ padding: '0.55rem 0', borderBottom: '1px solid var(--border)' }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        gap: '0.55rem',
-                        alignItems: 'center',
-                        marginBottom: '0.25rem',
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <CommentIdentity comment={comment} compact />
-                      <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
-                        {new Date(comment.createdAt).toLocaleString('vi-VN')}
-                      </span>
-                    </div>
-                    <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--text-primary)', lineHeight: 1.45 }}>
-                      {comment.content}
-                    </p>
-                  </div>
-                ))
+                <CommentThread
+                  comments={comments}
+                  currentUser={user}
+                  compact
+                  highlightCommentId={highlightedCommentId}
+                  commentDomIdPrefix={`page-comment-${chapterId}-${idx}`}
+                  onReply={handleReplyComment}
+                  onDelete={handleDeleteComment}
+                  emptyText="Chưa có bình luận nào cho trang này."
+                />
               )}
             </div>
 
             <div className="page-comment-input-row" style={{
               padding: '0.75rem 0.9rem',
               borderTop: '1px solid var(--border)',
-              display: 'flex',
+              display: 'grid',
               gap: '0.45rem',
               background: 'var(--bg-header)',
             }}>
+              {replyTarget && (
+                <div className="comment-reply-banner compact">
+                  <div>
+                    <strong>{`Đang trả lời @${replyTarget.username || 'người dùng'}`}</strong>
+                    {replyTarget.content && <span>{replyTarget.content}</span>}
+                  </div>
+                  <button
+                    type="button"
+                    className="comment-reply-cancel"
+                    onClick={() => setReplyTarget(null)}
+                  >
+                    Hủy
+                  </button>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '0.45rem' }}>
               <input
                 ref={inputRef}
                 className="form-control"
                 style={{ flex: 1, fontSize: '0.84rem' }}
-                placeholder="Viết bình luận theo trang..."
+                placeholder={
+                  replyTarget
+                    ? `Trả lời @${replyTarget.username || 'người dùng'}...`
+                    : 'Viết bình luận theo trang...'
+                }
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && submitPageComment()}
@@ -859,6 +1092,7 @@ function MangaPageWithComments({
               >
                 Gửi
               </button>
+              </div>
             </div>
           </div>
         )}
@@ -890,6 +1124,8 @@ export default function ChapterReader() {
   const [comments, setComments] = useState([]);
   const [visibleCount, setVisibleCount] = useState(5);
   const [newComment, setNewComment] = useState('');
+  const [replyTarget, setReplyTarget] = useState(null);
+  const [highlightedCommentId, setHighlightedCommentId] = useState('');
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [gifSearch, setGifSearch] = useState('');
   const [gifResults, setGifResults] = useState([]);
@@ -924,8 +1160,14 @@ export default function ChapterReader() {
   const [textColor, setTextColor] = useState('');
   const [lineHeight, setLineHeight] = useState(1.8);
   const [showSettings, setShowSettings] = useState(false);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
+  const [autoScrollSpeed, setAutoScrollSpeed] = useState(0.8);
   const mangaPageRefs = useRef({});
   const paragraphRefs = useRef({});
+  const commentInputRef = useRef(null);
+  const autoScrollFrameRef = useRef(null);
+  const focusedChapterCommentIdRef = useRef('');
+  const targetCommentId = String(searchParams.get('comment') || '').trim();
 
   useEffect(() => {
     loadChapter();
@@ -937,6 +1179,8 @@ export default function ChapterReader() {
     setNoteProcessingKeys([]);
     setMissionUpdate(null);
     setChapterPresenceCount(null);
+    setReplyTarget(null);
+    setAutoScrollEnabled(false);
   }, [chapterId]);
 
   useEffect(() => {
@@ -1019,6 +1263,16 @@ export default function ChapterReader() {
       unsubscribeCommentTargets(target);
     };
   }, [chapterId, user?.accessToken, user?.token]);
+
+  useEffect(() => {
+    if (!replyTarget?.id) {
+      return;
+    }
+
+    if (!comments.some((comment) => String(comment?.id || '') === String(replyTarget.id))) {
+      setReplyTarget(null);
+    }
+  }, [comments, replyTarget]);
 
   useEffect(() => {
     const getVar = (name, fallback) => {
@@ -1181,6 +1435,17 @@ export default function ChapterReader() {
     : null;
   const readerTopOffset = 'var(--header-height, 64px)';
   const chapterComments = comments.filter((comment) => comment.chapterId === chapterId);
+  const chapterLevelComments = chapterComments.filter(
+    (comment) => comment.pageIndex === null || comment.pageIndex === undefined,
+  );
+  const chapterRootCommentCount = chapterLevelComments.filter((comment) => {
+    const parentId = String(comment?.parentCommentId || '').trim();
+    if (!parentId) {
+      return true;
+    }
+
+    return !chapterLevelComments.some((item) => String(item?.id || '') === parentId);
+  }).length;
   const pageCommentsByIndex = {};
   chapterComments.forEach((comment) => {
     if (comment.chapterId === chapterId && comment.pageIndex !== null && comment.pageIndex !== undefined) {
@@ -1188,11 +1453,248 @@ export default function ChapterReader() {
       pageCommentsByIndex[comment.pageIndex].push(comment);
     }
   });
-  const visibleComments = chapterComments.filter((comment) => comment.pageIndex === null || comment.pageIndex === undefined);
+  const targetComment = targetCommentId
+    ? chapterComments.find((comment) => String(comment?.id || '') === targetCommentId) || null
+    : null;
+  const targetPageCommentIndex =
+    targetComment?.pageIndex !== null &&
+    targetComment?.pageIndex !== undefined &&
+    Number.isInteger(Number(targetComment.pageIndex))
+      ? Number(targetComment.pageIndex)
+      : null;
+  const effectiveTargetPageIndex =
+    bookmarkTargetPage !== null ? bookmarkTargetPage : targetPageCommentIndex;
+  const visibleComments = getVisibleThreadComments(
+    chapterLevelComments,
+    visibleCount,
+  );
   const makePageNoteKey = (pageIndex, paragraphIndex = null) =>
     `${chapterId || ''}::${pageIndex ?? ''}::${paragraphIndex ?? ''}`;
   const isPageNoteProcessing = (pageIndex, paragraphIndex = null) =>
     noteProcessingKeys.includes(makePageNoteKey(pageIndex, paragraphIndex));
+
+  useEffect(() => {
+    if (!targetCommentId) {
+      focusedChapterCommentIdRef.current = '';
+      setHighlightedCommentId('');
+      return undefined;
+    }
+
+    if (!targetComment) {
+      focusedChapterCommentIdRef.current = '';
+      setHighlightedCommentId('');
+      return undefined;
+    }
+
+    if (targetPageCommentIndex !== null) {
+      focusedChapterCommentIdRef.current = '';
+      setHighlightedCommentId('');
+      return undefined;
+    }
+
+    if (focusedChapterCommentIdRef.current === targetCommentId) {
+      return undefined;
+    }
+
+    const requiredVisibleCount = getRequiredVisibleRootCount(
+      chapterLevelComments,
+      targetCommentId,
+    );
+    if (requiredVisibleCount > visibleCount) {
+      setVisibleCount(requiredVisibleCount);
+      return undefined;
+    }
+
+    let highlightTimerId = null;
+    let retryTimerId = null;
+
+    const focusTargetComment = () => {
+      const targetNode = document.getElementById(`chapter-comment-${targetCommentId}`);
+      if (!targetNode) {
+        return false;
+      }
+
+      targetNode.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+      focusedChapterCommentIdRef.current = targetCommentId;
+      setHighlightedCommentId(targetCommentId);
+      highlightTimerId = window.setTimeout(() => {
+        setHighlightedCommentId((currentValue) =>
+          currentValue === targetCommentId ? '' : currentValue,
+        );
+      }, 2600);
+      return true;
+    };
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      if (focusTargetComment()) {
+        return;
+      }
+
+      retryTimerId = window.setTimeout(() => {
+        focusTargetComment();
+      }, 260);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      if (retryTimerId) {
+        window.clearTimeout(retryTimerId);
+      }
+      if (highlightTimerId) {
+        window.clearTimeout(highlightTimerId);
+      }
+    };
+  }, [
+    chapterLevelComments,
+    targetComment,
+    targetCommentId,
+    targetPageCommentIndex,
+    visibleCount,
+  ]);
+
+  useEffect(() => {
+    if (!autoScrollEnabled || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    let lastTime = null;
+    const pixelsPerSecond = Math.max(40, autoScrollSpeed * 120);
+
+    const step = (timestamp) => {
+      if (lastTime === null) {
+        lastTime = timestamp;
+      }
+
+      const delta = timestamp - lastTime;
+      lastTime = timestamp;
+      window.scrollBy({ top: (delta / 1000) * pixelsPerSecond, behavior: 'auto' });
+
+      const reachedBottom =
+        Math.ceil(window.innerHeight + window.scrollY) >=
+        (document.documentElement?.scrollHeight || document.body?.scrollHeight || 0) - 4;
+      if (reachedBottom) {
+        setAutoScrollEnabled(false);
+        autoScrollFrameRef.current = null;
+        return;
+      }
+
+      autoScrollFrameRef.current = window.requestAnimationFrame(step);
+    };
+
+    autoScrollFrameRef.current = window.requestAnimationFrame(step);
+
+    return () => {
+      if (autoScrollFrameRef.current) {
+        window.cancelAnimationFrame(autoScrollFrameRef.current);
+        autoScrollFrameRef.current = null;
+      }
+    };
+  }, [autoScrollEnabled, autoScrollSpeed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        if (showReadingNote) {
+          setShowReadingNote(false);
+          return;
+        }
+
+        if (showSettings) {
+          setShowSettings(false);
+        }
+        return;
+      }
+
+      const key = String(event.key || '').toLowerCase();
+
+      if (key === 's') {
+        event.preventDefault();
+        setAutoScrollEnabled((value) => !value);
+        return;
+      }
+
+      if (key === '[' || key === '-') {
+        event.preventDefault();
+        setAutoScrollSpeed((value) => Math.max(0.4, Number((value - 0.2).toFixed(1))));
+        return;
+      }
+
+      if (key === ']' || key === '=') {
+        event.preventDefault();
+        setAutoScrollSpeed((value) => Math.min(3, Number((value + 0.2).toFixed(1))));
+        return;
+      }
+
+      if (key === 'a' || key === 'j') {
+        if (!prevChapter?.id) {
+          return;
+        }
+        event.preventDefault();
+        navigate(`/story/${storyId}/chapter/${prevChapter.id}`);
+        return;
+      }
+
+      if (key === 'd' || key === 'k') {
+        if (!nextChapter?.id) {
+          return;
+        }
+        event.preventDefault();
+        navigate(`/story/${storyId}/chapter/${nextChapter.id}`);
+        return;
+      }
+
+      if (key === 't') {
+        event.preventDefault();
+        setShowSettings((value) => !value);
+        return;
+      }
+
+      if (key === 'b') {
+        event.preventDefault();
+        setShowBookmarkButtons((value) => !value);
+        return;
+      }
+
+      if (isManga && key === 'c') {
+        event.preventDefault();
+        setShowPageCommentButtons((value) => !value);
+        return;
+      }
+
+      if (!isManga && key === 'n') {
+        event.preventDefault();
+        setShowReadingNote((value) => !value);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    isManga,
+    navigate,
+    nextChapter?.id,
+    prevChapter?.id,
+    showReadingNote,
+    showSettings,
+    storyId,
+  ]);
 
   useEffect(() => {
     if (isManga && showReadingNote) {
@@ -1401,8 +1903,8 @@ export default function ChapterReader() {
     }
 
     let targetNode = null;
-    if (isManga && bookmarkTargetPage !== null && bookmarkTargetPage >= 0) {
-      targetNode = mangaPageRefs.current[bookmarkTargetPage] || null;
+    if (isManga && effectiveTargetPageIndex !== null && effectiveTargetPageIndex >= 0) {
+      targetNode = mangaPageRefs.current[effectiveTargetPageIndex] || null;
     } else if (!isManga && bookmarkTargetParagraph !== null && bookmarkTargetParagraph >= 0) {
       targetNode = paragraphRefs.current[bookmarkTargetParagraph] || null;
     }
@@ -1422,7 +1924,7 @@ export default function ChapterReader() {
       window.cancelAnimationFrame(animationFrameId);
       window.clearTimeout(retryTimer);
     };
-  }, [bookmarkTargetPage, bookmarkTargetParagraph, isManga, loading, chapterId]);
+  }, [effectiveTargetPageIndex, bookmarkTargetParagraph, isManga, loading, chapterId]);
 
   useEffect(() => {
     if (!user || !noteHydratedRef.current) {
@@ -1486,6 +1988,7 @@ export default function ChapterReader() {
         storyId,
         chapterId,
         chapterNumber: chapter?.chapterNumber,
+        parentCommentId: replyTarget?.id || null,
         content: newComment,
         gifUrl: selectedGifUrl || null,
         gifSize: selectedGifSize || null,
@@ -1502,6 +2005,7 @@ export default function ChapterReader() {
       return;
     }
     setNewComment('');
+    setReplyTarget(null);
     setSelectedGifUrl(null);
     setSelectedGifSize(null);
     setShowGifPicker(false);
@@ -1511,6 +2015,44 @@ export default function ChapterReader() {
     setVisibleCount(5);
     toast.success('Đã gửi bình luận.');
     setSending(false);
+  };
+
+  const handleReplyComment = (comment) => {
+    if (!comment?.id) {
+      return;
+    }
+
+    setReplyTarget(comment);
+    setNewComment((currentValue) => {
+      if (String(currentValue || '').trim()) {
+        return currentValue;
+      }
+
+      return comment?.username ? `@${comment.username} ` : '';
+    });
+    window.requestAnimationFrame(() => {
+      commentInputRef.current?.focus();
+    });
+  };
+
+  const handleDeleteComment = async (comment) => {
+    if (!comment?.id) {
+      return;
+    }
+
+    if (!window.confirm('Xóa bình luận này?')) {
+      return;
+    }
+
+    try {
+      await deleteComment(comment.id);
+      if (String(replyTarget?.id || '') === String(comment.id)) {
+        setReplyTarget(null);
+      }
+      toast.success('Đã xóa bình luận.');
+    } catch (error) {
+      toastFromError(error, 'Không xóa được bình luận.');
+    }
   };
 
   const searchGifs = async (keyword) => {
@@ -2046,6 +2588,7 @@ export default function ChapterReader() {
         }}>
           <label>Cỡ chữ: <input type="range" min="14" max="28" value={fontSize} onChange={(e) => setFontSize(+e.target.value)} /> {fontSize}px</label>
           <label>Dãn dòng: <input type="range" min="1.2" max="3" step="0.1" value={lineHeight} onChange={(e) => setLineHeight(+e.target.value)} /> {lineHeight}</label>
+          <label>Tự cuộn: <input type="range" min="0.4" max="3" step="0.1" value={autoScrollSpeed} onChange={(e) => setAutoScrollSpeed(Number(e.target.value))} /> {autoScrollSpeed.toFixed(1)}x</label>
           <label>Font:
             <select
               value={fontFamily}
@@ -2065,6 +2608,9 @@ export default function ChapterReader() {
               <option value="monospace">Monospace</option>
             </select>
           </label>
+          <button className="btn btn-outline btn-sm" type="button" onClick={() => setAutoScrollEnabled((value) => !value)}>
+            {autoScrollEnabled ? 'Dừng auto-scroll' : 'Bật auto-scroll'}
+          </button>
           <label>Nền: <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} /></label>
           <label>Chữ: <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} /></label>
         </div>
@@ -2108,6 +2654,35 @@ export default function ChapterReader() {
             <span>{`Đang có ${chapterPresenceCount.toLocaleString('vi-VN')} người đọc chương này`}</span>
           </div>
         )}
+        <div className="chapter-reader-quicktools">
+          <button
+            type="button"
+            className={`chapter-reader-tool ${autoScrollEnabled ? 'active' : ''}`}
+            onClick={() => setAutoScrollEnabled((value) => !value)}
+          >
+            {autoScrollEnabled ? 'Dừng auto-scroll' : 'Auto-scroll'}
+          </button>
+          <div className="chapter-reader-speed-group">
+            <button
+              type="button"
+              className="chapter-reader-speed-btn"
+              onClick={() => setAutoScrollSpeed((value) => Math.max(0.4, Number((value - 0.2).toFixed(1))))}
+            >
+              -
+            </button>
+            <span className="chapter-reader-speed-value">{`${autoScrollSpeed.toFixed(1)}x`}</span>
+            <button
+              type="button"
+              className="chapter-reader-speed-btn"
+              onClick={() => setAutoScrollSpeed((value) => Math.min(3, Number((value + 0.2).toFixed(1))))}
+            >
+              +
+            </button>
+          </div>
+          <span className="chapter-reader-shortcuts">
+            {isManga ? 'Phím tắt: S auto, [ ] tốc độ, A/D chương, B bookmark, C comment' : 'Phím tắt: S auto, [ ] tốc độ, A/D chương, B bookmark, N ghi chú, T setting'}
+          </span>
+        </div>
         <div className="chapter-reaction-wrap">
           {chapterReactionTarget && chapterReactionSummary && (
             <ReactionBar
@@ -2148,6 +2723,8 @@ export default function ChapterReader() {
                   bookmarkBusy={isProcessing(storyId, chapterId, idx, null)}
                   noteBusy={isPageNoteProcessing(idx)}
                   initialComments={pageCommentsCache[idx] || pageCommentsByIndex[idx] || []}
+                  initialOpen={targetPageCommentIndex === idx}
+                  targetCommentId={targetPageCommentIndex === idx ? targetCommentId : ''}
                   showBookmarkToggle={showBookmarkButtons}
                   showCommentToggle={showPageCommentButtons}
                   onPageCommentsChange={(pageIdx, nextComments) => {
@@ -2268,12 +2845,32 @@ export default function ChapterReader() {
       {/* Comments */}
       <div className="chapter-reader-comments" style={{ maxWidth: '750px', margin: '0 auto', padding: '1rem' }}>
         <div className="card">
-          <h3>💬 Bình luận chương ({visibleComments.length})</h3>
+          <h3>💬 Bình luận chương ({chapterLevelComments.length})</h3>
+          {replyTarget && (
+            <div className="comment-reply-banner">
+              <div>
+                <strong>{`Đang trả lời @${replyTarget.username || 'người dùng'}`}</strong>
+                {replyTarget.content && <span>{replyTarget.content}</span>}
+              </div>
+              <button
+                type="button"
+                className="comment-reply-cancel"
+                onClick={() => setReplyTarget(null)}
+              >
+                Hủy
+              </button>
+            </div>
+          )}
           <div className="chapter-comment-toolbar" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.75rem' }}>
             <input
+              ref={commentInputRef}
               className="form-control"
               style={{ flex: 1 }}
-              placeholder="Viết bình luận..."
+              placeholder={
+                replyTarget
+                  ? `Trả lời @${replyTarget.username || 'người dùng'}...`
+                  : 'Viết bình luận...'
+              }
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleComment()}
@@ -2372,77 +2969,25 @@ export default function ChapterReader() {
               </div>
             </div>
           )}
-          {visibleComments.slice(0, visibleCount).map((c) => (
-            <div key={c.id} style={{ padding: '0.8rem', borderBottom: '1px solid var(--border)', marginBottom: '0.4rem' }}>
-              <div
-                className="chapter-comment-item-header"
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: '0.75rem',
-                  alignItems: 'center',
-                  marginBottom: '0.35rem',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <CommentIdentity comment={c} />
-                  {c.chapterNumber && (
-                    <span style={{
-                      background: 'var(--bg-card)',
-                      color: 'var(--accent)',
-                      borderRadius: '999px',
-                      padding: '0.1rem 0.55rem',
-                      fontSize: '0.72rem',
-                      border: '1px solid var(--border)'
-                    }}>
-                      Chương {c.chapterNumber}
-                    </span>
-                  )}
-                </div>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                  {new Date(c.createdAt).toLocaleString('vi-VN')}
-                </span>
-              </div>
-              {c.content && (
-                <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{c.content}</p>
-              )}
-              {c.gifUrl && (!c.gifSize || c.gifSize <= 2 * 1024 * 1024) && (
-                <img
-                  className="chapter-comment-gif"
-                  src={c.gifUrl}
-                  alt="gif"
-                  loading="lazy"
-                  style={{
-                    marginTop: '0.35rem',
-                    width: '180px',
-                    height: '120px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border)',
-                    objectFit: 'cover'
-                  }}
-                  onError={(e) => {
-                    if (c.gifUrl && e.target.src !== c.gifUrl) e.target.src = c.gifUrl;
-                  }}
-                />
-              )}
-              {c.gifUrl && c.gifSize && c.gifSize > 2 * 1024 * 1024 && (
-                <p style={{ marginTop: '0.3rem', fontSize: '0.8rem', color: 'var(--warning)' }}>
-                  GIF &gt; 2MB không hiển thị.
-                </p>
-              )}
-            </div>
-          ))}
-          {visibleComments.length > visibleCount && (
+          <CommentThread
+            comments={visibleComments}
+            currentUser={user}
+            showChapterBadge
+            highlightCommentId={highlightedCommentId}
+            commentDomIdPrefix="chapter-comment"
+            onReply={handleReplyComment}
+            onDelete={handleDeleteComment}
+            emptyText="Chưa có bình luận nào cho chương này."
+          />
+          {chapterRootCommentCount > visibleCount && (
             <button
               className="btn btn-outline"
               style={{ width: '100%', marginTop: '0.5rem' }}
-              onClick={() => setVisibleCount((v) => Math.min(visibleComments.length, v + 5))}
+              onClick={() => setVisibleCount((v) => Math.min(chapterRootCommentCount, v + 5))}
             >
-              Xem thêm ({visibleComments.length - visibleCount})
+              Xem thêm ({chapterRootCommentCount - visibleCount})
             </button>
           )}
-          {visibleComments.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Chưa có bình luận nào cho chương này.</p>}
         </div>
       </div>
     </div>
