@@ -24,6 +24,22 @@ function toSerializableUser(user) {
     badges: Array.isArray(plainUser.badges) ? plainUser.badges : [],
     readingStreak: Number(plainUser.readingStreak || 0),
     longestReadingStreak: Number(plainUser.longestReadingStreak || 0),
+    profileHeadline:
+      typeof plainUser.profileHeadline === "string"
+        ? plainUser.profileHeadline.trim()
+        : "",
+    profileBio:
+      typeof plainUser.profileBio === "string"
+        ? plainUser.profileBio.trim()
+        : "",
+    profileAccentColor:
+      typeof plainUser.profileAccentColor === "string"
+        ? plainUser.profileAccentColor.trim()
+        : "",
+    profileReadme:
+      typeof plainUser.profileReadme === "string"
+        ? plainUser.profileReadme
+        : "",
   };
 
   ensureRewardState(safeUser);
@@ -42,6 +58,10 @@ function buildPublicProfilePayload(user, extraStats = {}) {
     username: safeUser.username,
     avatar: safeUser.avatar || null,
     createdAt: safeUser.createdAt || null,
+    headline: safeUser.profileHeadline,
+    bio: safeUser.profileBio,
+    accentColor: safeUser.profileAccentColor || null,
+    readme: safeUser.profileReadme || "",
     activeSkin,
     badges,
     stats: {

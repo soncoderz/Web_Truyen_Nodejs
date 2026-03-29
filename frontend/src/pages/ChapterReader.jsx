@@ -391,6 +391,19 @@ function normalizeReadingNote(note) {
   return note.replace(/\r\n/g, '\n').trim();
 }
 
+function formatDisplayText(value) {
+  const repaired = repairMojibakeText(value || '');
+  if (typeof repaired !== 'string' || !repaired) {
+    return repaired || '';
+  }
+
+  try {
+    return repaired.normalize('NFC');
+  } catch {
+    return repaired;
+  }
+}
+
 function getBookmarkDisplayNote(note, fallbackLabel = '') {
   const normalizedNote = normalizeReadingNote(note);
   if (!normalizedNote) {
@@ -1467,7 +1480,7 @@ export default function ChapterReader() {
 
   // Reader settings
   const [fontSize, setFontSize] = useState(18);
-  const [fontFamily, setFontFamily] = useState('Georgia');
+  const [fontFamily, setFontFamily] = useState('Inter');
   const [bgColor, setBgColor] = useState('');
   const [textColor, setTextColor] = useState('');
   const [lineHeight, setLineHeight] = useState(1.8);
@@ -1786,15 +1799,15 @@ export default function ChapterReader() {
   const nextChapter = currentIndex < chapters.length - 1 ? chapters[currentIndex + 1] : null;
   const isManga = story?.type === 'MANGA';
   const displayStoryTitle = useMemo(
-    () => repairMojibakeText(story?.title || ''),
+    () => formatDisplayText(story?.title || ''),
     [story?.title],
   );
   const displayChapterTitle = useMemo(
-    () => repairMojibakeText(chapter?.title || ''),
+    () => formatDisplayText(chapter?.title || ''),
     [chapter?.title],
   );
   const displayChapterSummary = useMemo(
-    () => repairMojibakeText(chapter?.summary || '').trim(),
+    () => formatDisplayText(chapter?.summary || '').trim(),
     [chapter?.summary],
   );
   const paragraphBlocks = useMemo(
@@ -1802,7 +1815,7 @@ export default function ChapterReader() {
       isManga
         ? []
         : splitChapterContentIntoParagraphs(
-            repairMojibakeText(chapter?.content || ''),
+            formatDisplayText(chapter?.content || ''),
           )
     ),
     [chapter?.content, isManga],
