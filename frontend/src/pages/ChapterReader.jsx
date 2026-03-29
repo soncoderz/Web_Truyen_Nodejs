@@ -8,7 +8,7 @@ import { useTheme } from '../context/ThemeContext';
 import useReactionSummaries from '../hooks/useReactionSummaries';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
 import { markChapterAsRead } from '../utils/readingStorage';
-import { repairMojibakeText } from '../utils/textRepair';
+import { prepareTextForSpeech, repairMojibakeText } from '../utils/textRepair';
 import {
   REALTIME_EVENTS,
   subscribeChapterPresence,
@@ -37,6 +37,54 @@ import {
 } from '../utils/reactions';
 
 const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
+const READER_TTS_SETTINGS_KEY = 'reader-tts-settings';
+const TTS_LANGUAGE_MODES = {
+  auto: 'AUTO',
+  vietnamese: 'VI',
+  english: 'EN',
+};
+const VIETNAMESE_TTS_CHAR_PATTERN =
+  /[ăâđêôơưĂÂĐÊÔƠƯáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/g;
+const ENGLISH_TTS_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'but',
+  'by',
+  'for',
+  'from',
+  'has',
+  'he',
+  'her',
+  'his',
+  'if',
+  'in',
+  'into',
+  'is',
+  'it',
+  'its',
+  'of',
+  'on',
+  'or',
+  'she',
+  'that',
+  'the',
+  'their',
+  'there',
+  'they',
+  'this',
+  'to',
+  'was',
+  'we',
+  'were',
+  'with',
+  'you',
+  'your',
+]);
 
 function splitChapterContentIntoParagraphs(content) {
   if (!content) {
@@ -71,12 +119,289 @@ function buildParagraphSnippet(paragraph) {
   return `${normalized.slice(0, 140)}...`;
 }
 
+function getStoredTtsSettings() {
+  if (typeof window === 'undefined') {
+    return {
+      languageMode: TTS_LANGUAGE_MODES.auto,
+      vietnameseVoiceURI: '',
+      englishVoiceURI: '',
+      rate: 0.95,
+      pitch: 1,
+    };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(READER_TTS_SETTINGS_KEY);
+    if (!raw) {
+      return {
+        languageMode: TTS_LANGUAGE_MODES.auto,
+        vietnameseVoiceURI: '',
+        englishVoiceURI: '',
+        rate: 0.95,
+        pitch: 1,
+      };
+    }
+
+    const parsed = JSON.parse(raw);
+    const legacyVoiceURI = typeof parsed?.voiceURI === 'string' ? parsed.voiceURI : '';
+    const nextLanguageMode = String(parsed?.languageMode || TTS_LANGUAGE_MODES.auto).toUpperCase();
+    return {
+      languageMode: Object.values(TTS_LANGUAGE_MODES).includes(nextLanguageMode)
+        ? nextLanguageMode
+        : TTS_LANGUAGE_MODES.auto,
+      vietnameseVoiceURI:
+        typeof parsed?.vietnameseVoiceURI === 'string'
+          ? parsed.vietnameseVoiceURI
+          : legacyVoiceURI,
+      englishVoiceURI:
+        typeof parsed?.englishVoiceURI === 'string'
+          ? parsed.englishVoiceURI
+          : '',
+      rate: Number.isFinite(Number(parsed?.rate)) ? Number(parsed.rate) : 0.95,
+      pitch: Number.isFinite(Number(parsed?.pitch)) ? Number(parsed.pitch) : 1,
+    };
+  } catch {
+    return {
+      languageMode: TTS_LANGUAGE_MODES.auto,
+      vietnameseVoiceURI: '',
+      englishVoiceURI: '',
+      rate: 0.95,
+      pitch: 1,
+    };
+  }
+}
+
+function splitSpeechTextIntoChunks(text, maxLength = 360) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return [];
+  }
+
+  if (normalized.length <= maxLength) {
+    return [normalized];
+  }
+
+  const chunks = [];
+  const sentenceParts = normalized
+    .split(/(?<=[.!?;:…])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (!sentenceParts.length) {
+    return [normalized];
+  }
+
+  let currentChunk = '';
+
+  const pushChunk = () => {
+    const nextChunk = currentChunk.trim();
+    if (nextChunk) {
+      chunks.push(nextChunk);
+    }
+    currentChunk = '';
+  };
+
+  sentenceParts.forEach((part) => {
+    if (part.length > maxLength) {
+      pushChunk();
+
+      const words = part.split(/\s+/).filter(Boolean);
+      let longChunk = '';
+      words.forEach((word) => {
+        const candidate = longChunk ? `${longChunk} ${word}` : word;
+        if (candidate.length > maxLength) {
+          if (longChunk) {
+            chunks.push(longChunk);
+          }
+          longChunk = word;
+        } else {
+          longChunk = candidate;
+        }
+      });
+      if (longChunk) {
+        chunks.push(longChunk);
+      }
+      return;
+    }
+
+    const candidate = currentChunk ? `${currentChunk} ${part}` : part;
+    if (candidate.length > maxLength) {
+      pushChunk();
+      currentChunk = part;
+    } else {
+      currentChunk = candidate;
+    }
+  });
+
+  pushChunk();
+  return chunks.length ? chunks : [normalized];
+}
+
+function getVietnameseCharCount(value) {
+  return (String(value || '').match(VIETNAMESE_TTS_CHAR_PATTERN) || []).length;
+}
+
+function getEnglishSignalScore(value) {
+  const normalizedValue = String(value || '');
+  const englishWords = normalizedValue.toLowerCase().match(/\b[a-z]{2,}\b/g) || [];
+  if (!englishWords.length) {
+    return 0;
+  }
+
+  const stopWordCount = englishWords.filter((word) => ENGLISH_TTS_STOP_WORDS.has(word)).length;
+  const alphaCount = (normalizedValue.match(/[A-Za-z]/g) || []).length;
+  const nonSpaceCount = normalizedValue.replace(/\s+/g, '').length || 1;
+  const asciiRatio = alphaCount / nonSpaceCount;
+
+  return (
+    stopWordCount * 3 +
+    englishWords.length +
+    (asciiRatio >= 0.6 ? 2 : 0) +
+    (asciiRatio >= 0.8 ? 1 : 0)
+  );
+}
+
+function detectSpeechLanguage(text, languageMode = TTS_LANGUAGE_MODES.auto) {
+  if (languageMode === TTS_LANGUAGE_MODES.vietnamese) {
+    return 'vi-VN';
+  }
+
+  if (languageMode === TTS_LANGUAGE_MODES.english) {
+    return 'en-US';
+  }
+
+  const normalized = String(text || '').trim();
+  if (!normalized) {
+    return 'vi-VN';
+  }
+
+  if (getVietnameseCharCount(normalized) > 0) {
+    return 'vi-VN';
+  }
+
+  const englishWords = normalized.toLowerCase().match(/\b[a-z]{2,}\b/g) || [];
+  const stopWordCount = englishWords.filter((word) => ENGLISH_TTS_STOP_WORDS.has(word)).length;
+  const asciiLetterCount = (normalized.match(/[A-Za-z]/g) || []).length;
+  const asciiRatio = asciiLetterCount / (normalized.replace(/\s+/g, '').length || 1);
+
+  if (
+    (stopWordCount >= 1 && englishWords.length >= 2 && asciiRatio >= 0.55) ||
+    (englishWords.length >= 3 && asciiRatio >= 0.72) ||
+    getEnglishSignalScore(normalized) >= 6
+  ) {
+    return 'en-US';
+  }
+
+  return 'vi-VN';
+}
+
+function buildSpeechQueue(paragraphs, startParagraphIndex = 0, languageMode = TTS_LANGUAGE_MODES.auto) {
+  return (Array.isArray(paragraphs) ? paragraphs : [])
+    .slice(startParagraphIndex)
+    .flatMap((paragraph, offset) => {
+      const preparedParagraph = prepareTextForSpeech(paragraph);
+      return splitSpeechTextIntoChunks(preparedParagraph).map((chunk) => ({
+        paragraphIndex: startParagraphIndex + offset,
+        text: chunk,
+        language: detectSpeechLanguage(chunk, languageMode),
+      }));
+    });
+}
+
+function isVietnameseVoice(voice) {
+  const voiceName = String(voice?.name || '');
+  const voiceLang = String(voice?.lang || '');
+  return /^vi[-_]/i.test(voiceLang) || /vietnam/i.test(voiceName);
+}
+
+function isEnglishVoice(voice) {
+  const voiceName = String(voice?.name || '');
+  const voiceLang = String(voice?.lang || '');
+  return /^en[-_]/i.test(voiceLang) || /english|united states|united kingdom|australia|canada/i.test(voiceName);
+}
+
+function compareVoicePriority(leftVoice, rightVoice, language = 'vi-VN') {
+  const leftName = String(leftVoice?.name || '').toLowerCase();
+  const rightName = String(rightVoice?.name || '').toLowerCase();
+
+  const scoreVoice = (voiceName, voice) => {
+    let score = 0;
+    if (voiceName.includes('natural')) score += 6;
+    if (voiceName.includes('online')) score += 4;
+    if (voiceName.includes('microsoft')) score += 3;
+    if (voice?.default) score += 2;
+
+    if (/^vi/i.test(language)) {
+      if (voiceName.includes('hoaimy')) score += 2;
+      if (voiceName.includes('namminh')) score += 2;
+    }
+
+    if (/^en/i.test(language)) {
+      if (voiceName.includes('aria')) score += 2;
+      if (voiceName.includes('jenny')) score += 2;
+      if (voiceName.includes('guy')) score += 2;
+      if (voiceName.includes('davis')) score += 2;
+      if (voiceName.includes('zira')) score += 2;
+      if (voiceName.includes('samantha')) score += 2;
+    }
+
+    return score;
+  };
+
+  return scoreVoice(rightName, rightVoice) - scoreVoice(leftName, leftVoice);
+}
+
+function getVoicesForLanguage(voices, language = 'vi-VN') {
+  const safeVoices = Array.isArray(voices) ? voices : [];
+  const matcher = /^en/i.test(language) ? isEnglishVoice : isVietnameseVoice;
+  return safeVoices
+    .filter(matcher)
+    .sort((leftVoice, rightVoice) => compareVoicePriority(leftVoice, rightVoice, language));
+}
+
+function pickPreferredVoice(voices, preferredVoiceURI = '', language = 'vi-VN') {
+  const safeVoices = Array.isArray(voices) ? voices : [];
+  if (!safeVoices.length) {
+    return null;
+  }
+
+  const selectableVoices = getVoicesForLanguage(safeVoices, language);
+  if (!selectableVoices.length) {
+    return null;
+  }
+
+  const normalizedPreferredVoiceURI = String(preferredVoiceURI || '').trim();
+  if (normalizedPreferredVoiceURI) {
+    const matchedVoice = selectableVoices.find(
+      (voice) => String(voice?.voiceURI || '') === normalizedPreferredVoiceURI,
+    );
+    if (matchedVoice) {
+      return matchedVoice;
+    }
+  }
+
+  return selectableVoices[0] || null;
+}
+
 function normalizeReadingNote(note) {
   if (typeof note !== 'string') {
     return '';
   }
 
   return note.replace(/\r\n/g, '\n').trim();
+}
+
+function formatDisplayText(value) {
+  const repaired = repairMojibakeText(value || '');
+  if (typeof repaired !== 'string' || !repaired) {
+    return repaired || '';
+  }
+
+  try {
+    return repaired.normalize('NFC');
+  } catch {
+    return repaired;
+  }
 }
 
 function getBookmarkDisplayNote(note, fallbackLabel = '') {
@@ -1155,18 +1480,37 @@ export default function ChapterReader() {
 
   // Reader settings
   const [fontSize, setFontSize] = useState(18);
-  const [fontFamily, setFontFamily] = useState('Georgia');
+  const [fontFamily, setFontFamily] = useState('Inter');
   const [bgColor, setBgColor] = useState('');
   const [textColor, setTextColor] = useState('');
   const [lineHeight, setLineHeight] = useState(1.8);
   const [showSettings, setShowSettings] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
   const [autoScrollSpeed, setAutoScrollSpeed] = useState(0.8);
+  const [ttsSupported, setTtsSupported] = useState(false);
+  const [ttsVoices, setTtsVoices] = useState([]);
+  const [ttsLanguageMode, setTtsLanguageMode] = useState(
+    () => getStoredTtsSettings().languageMode,
+  );
+  const [ttsVietnameseVoiceURI, setTtsVietnameseVoiceURI] = useState(
+    () => getStoredTtsSettings().vietnameseVoiceURI,
+  );
+  const [ttsEnglishVoiceURI, setTtsEnglishVoiceURI] = useState(
+    () => getStoredTtsSettings().englishVoiceURI,
+  );
+  const [ttsRate, setTtsRate] = useState(() => getStoredTtsSettings().rate);
+  const [ttsPitch, setTtsPitch] = useState(() => getStoredTtsSettings().pitch);
+  const [ttsStatus, setTtsStatus] = useState('idle');
+  const [activeSpeechParagraph, setActiveSpeechParagraph] = useState(-1);
   const mangaPageRefs = useRef({});
   const paragraphRefs = useRef({});
   const commentInputRef = useRef(null);
   const autoScrollFrameRef = useRef(null);
   const focusedChapterCommentIdRef = useRef('');
+  const speechSynthesisRef = useRef(null);
+  const speechQueueRef = useRef([]);
+  const speechQueueIndexRef = useRef(-1);
+  const speechSessionRef = useRef(0);
   const targetCommentId = String(searchParams.get('comment') || '').trim();
 
   useEffect(() => {
@@ -1285,6 +1629,88 @@ export default function ChapterReader() {
   }, [themeKey]);
 
   useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      !('speechSynthesis' in window) ||
+      typeof window.SpeechSynthesisUtterance === 'undefined'
+    ) {
+      setTtsSupported(false);
+      setTtsVoices([]);
+      speechSynthesisRef.current = null;
+      return undefined;
+    }
+
+    const synth = window.speechSynthesis;
+    speechSynthesisRef.current = synth;
+    setTtsSupported(true);
+
+    const syncVoices = () => {
+      const availableVoices = synth.getVoices();
+      setTtsVoices(Array.isArray(availableVoices) ? availableVoices : []);
+    };
+
+    syncVoices();
+
+    if (typeof synth.addEventListener === 'function') {
+      synth.addEventListener('voiceschanged', syncVoices);
+      return () => {
+        synth.removeEventListener('voiceschanged', syncVoices);
+      };
+    }
+
+    const previousHandler = synth.onvoiceschanged;
+    synth.onvoiceschanged = syncVoices;
+    return () => {
+      synth.onvoiceschanged = previousHandler || null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const preferredVietnameseVoice = pickPreferredVoice(
+      ttsVoices,
+      ttsVietnameseVoiceURI,
+      'vi-VN',
+    );
+    if (preferredVietnameseVoice) {
+      const nextVoiceURI = String(preferredVietnameseVoice.voiceURI || '');
+      if (nextVoiceURI && nextVoiceURI !== ttsVietnameseVoiceURI) {
+        setTtsVietnameseVoiceURI(nextVoiceURI);
+      }
+    }
+
+    const preferredEnglishVoice = pickPreferredVoice(
+      ttsVoices,
+      ttsEnglishVoiceURI,
+      'en-US',
+    );
+    if (preferredEnglishVoice) {
+      const nextVoiceURI = String(preferredEnglishVoice.voiceURI || '');
+      if (nextVoiceURI && nextVoiceURI !== ttsEnglishVoiceURI) {
+        setTtsEnglishVoiceURI(nextVoiceURI);
+      }
+    }
+  }, [ttsEnglishVoiceURI, ttsVietnameseVoiceURI, ttsVoices]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        READER_TTS_SETTINGS_KEY,
+        JSON.stringify({
+          languageMode: ttsLanguageMode,
+          vietnameseVoiceURI: ttsVietnameseVoiceURI,
+          englishVoiceURI: ttsEnglishVoiceURI,
+          rate: ttsRate,
+          pitch: ttsPitch,
+        }),
+      );
+    } catch {}
+  }, [ttsEnglishVoiceURI, ttsLanguageMode, ttsPitch, ttsRate, ttsVietnameseVoiceURI]);
+
+  useEffect(() => {
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
       if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current);
@@ -1373,15 +1799,15 @@ export default function ChapterReader() {
   const nextChapter = currentIndex < chapters.length - 1 ? chapters[currentIndex + 1] : null;
   const isManga = story?.type === 'MANGA';
   const displayStoryTitle = useMemo(
-    () => repairMojibakeText(story?.title || ''),
+    () => formatDisplayText(story?.title || ''),
     [story?.title],
   );
   const displayChapterTitle = useMemo(
-    () => repairMojibakeText(chapter?.title || ''),
+    () => formatDisplayText(chapter?.title || ''),
     [chapter?.title],
   );
   const displayChapterSummary = useMemo(
-    () => repairMojibakeText(chapter?.summary || '').trim(),
+    () => formatDisplayText(chapter?.summary || '').trim(),
     [chapter?.summary],
   );
   const paragraphBlocks = useMemo(
@@ -1389,7 +1815,7 @@ export default function ChapterReader() {
       isManga
         ? []
         : splitChapterContentIntoParagraphs(
-            repairMojibakeText(chapter?.content || ''),
+            formatDisplayText(chapter?.content || ''),
           )
     ),
     [chapter?.content, isManga],
@@ -1472,6 +1898,209 @@ export default function ChapterReader() {
     `${chapterId || ''}::${pageIndex ?? ''}::${paragraphIndex ?? ''}`;
   const isPageNoteProcessing = (pageIndex, paragraphIndex = null) =>
     noteProcessingKeys.includes(makePageNoteKey(pageIndex, paragraphIndex));
+  const vietnameseTtsVoiceOptions = useMemo(
+    () => getVoicesForLanguage(ttsVoices, 'vi-VN'),
+    [ttsVoices],
+  );
+  const englishTtsVoiceOptions = useMemo(
+    () => getVoicesForLanguage(ttsVoices, 'en-US'),
+    [ttsVoices],
+  );
+  const hasVietnameseTtsVoice = useMemo(
+    () => ttsVoices.some(isVietnameseVoice),
+    [ttsVoices],
+  );
+  const hasEnglishTtsVoice = useMemo(
+    () => ttsVoices.some(isEnglishVoice),
+    [ttsVoices],
+  );
+  const selectedVietnameseTtsVoice = useMemo(
+    () => pickPreferredVoice(ttsVoices, ttsVietnameseVoiceURI, 'vi-VN'),
+    [ttsVietnameseVoiceURI, ttsVoices],
+  );
+  const selectedEnglishTtsVoice = useMemo(
+    () => pickPreferredVoice(ttsVoices, ttsEnglishVoiceURI, 'en-US'),
+    [ttsEnglishVoiceURI, ttsVoices],
+  );
+
+  const stopTts = (resetParagraph = true) => {
+    speechSessionRef.current += 1;
+    speechQueueRef.current = [];
+    speechQueueIndexRef.current = -1;
+
+    const synth = speechSynthesisRef.current;
+    if (synth) {
+      try {
+        synth.cancel();
+      } catch {}
+    }
+
+    setTtsStatus('idle');
+    if (resetParagraph) {
+      setActiveSpeechParagraph(-1);
+    }
+  };
+
+  const speakQueueItem = (queueIndex, sessionId) => {
+    const synth = speechSynthesisRef.current;
+    const queue = speechQueueRef.current;
+    if (!synth || sessionId !== speechSessionRef.current) {
+      return;
+    }
+
+    if (!Array.isArray(queue) || queueIndex >= queue.length) {
+      speechQueueRef.current = [];
+      speechQueueIndexRef.current = -1;
+      setTtsStatus('idle');
+      setActiveSpeechParagraph(-1);
+      return;
+    }
+
+    const currentItem = queue[queueIndex];
+    if (!currentItem?.text) {
+      speakQueueItem(queueIndex + 1, sessionId);
+      return;
+    }
+
+    speechQueueIndexRef.current = queueIndex;
+    const utterance = new window.SpeechSynthesisUtterance(currentItem.text);
+    const effectiveLanguage = currentItem.language === 'en-US' ? 'en-US' : 'vi-VN';
+    const selectedVoice =
+      effectiveLanguage === 'en-US'
+        ? selectedEnglishTtsVoice || selectedVietnameseTtsVoice
+        : selectedVietnameseTtsVoice || selectedEnglishTtsVoice;
+
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+      utterance.lang = selectedVoice.lang || effectiveLanguage;
+    } else {
+      utterance.lang = effectiveLanguage;
+    }
+    utterance.rate = ttsRate;
+    utterance.pitch = ttsPitch;
+    utterance.volume = 1;
+
+    utterance.onstart = () => {
+      if (sessionId !== speechSessionRef.current) {
+        return;
+      }
+
+      setTtsStatus('playing');
+      setActiveSpeechParagraph(currentItem.paragraphIndex);
+
+      const paragraphNode = paragraphRefs.current[currentItem.paragraphIndex];
+      if (paragraphNode) {
+        paragraphNode.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      }
+    };
+
+    utterance.onend = () => {
+      if (sessionId !== speechSessionRef.current) {
+        return;
+      }
+
+      speakQueueItem(queueIndex + 1, sessionId);
+    };
+
+    utterance.onerror = (event) => {
+      if (
+        sessionId !== speechSessionRef.current ||
+        event?.error === 'interrupted' ||
+        event?.error === 'canceled'
+      ) {
+        return;
+      }
+
+      console.error('speechSynthesis error', event);
+      stopTts(false);
+    };
+
+    synth.speak(utterance);
+  };
+
+  const startTtsFromParagraph = (startParagraphIndex = 0) => {
+    if (isManga || !ttsSupported || !paragraphBlocks.length) {
+      return;
+    }
+
+    const synth = speechSynthesisRef.current;
+    if (!synth) {
+      return;
+    }
+
+    const safeStartParagraphIndex = Math.max(
+      0,
+      Math.min(paragraphBlocks.length - 1, Number(startParagraphIndex) || 0),
+    );
+    const nextQueue = buildSpeechQueue(
+      paragraphBlocks,
+      safeStartParagraphIndex,
+      ttsLanguageMode,
+    );
+    if (!nextQueue.length) {
+      return;
+    }
+
+    speechSessionRef.current += 1;
+    const sessionId = speechSessionRef.current;
+    speechQueueRef.current = nextQueue;
+    speechQueueIndexRef.current = -1;
+
+    try {
+      synth.cancel();
+    } catch {}
+
+    setTtsStatus('playing');
+    setActiveSpeechParagraph(safeStartParagraphIndex);
+    speakQueueItem(0, sessionId);
+  };
+
+  const pauseTts = () => {
+    const synth = speechSynthesisRef.current;
+    if (!synth || !synth.speaking || synth.paused) {
+      return;
+    }
+
+    synth.pause();
+    setTtsStatus('paused');
+  };
+
+  const resumeTts = () => {
+    const synth = speechSynthesisRef.current;
+    if (!synth || !synth.paused) {
+      return;
+    }
+
+    synth.resume();
+    setTtsStatus('playing');
+  };
+
+  const toggleTtsPlayback = () => {
+    if (isManga || !ttsSupported || !paragraphBlocks.length) {
+      return;
+    }
+
+    if (ttsStatus === 'playing') {
+      pauseTts();
+      return;
+    }
+
+    if (ttsStatus === 'paused') {
+      resumeTts();
+      return;
+    }
+
+    const startParagraphIndex =
+      activeSpeechParagraph >= 0
+        ? activeSpeechParagraph
+        : bookmarkTargetParagraph !== null
+          ? bookmarkTargetParagraph
+          : 0;
+    startTtsFromParagraph(startParagraphIndex);
+  };
 
   useEffect(() => {
     if (!targetCommentId) {
@@ -1553,6 +2182,39 @@ export default function ChapterReader() {
     targetCommentId,
     targetPageCommentIndex,
     visibleCount,
+  ]);
+
+  useEffect(() => {
+    stopTts();
+  }, [chapterId, isManga]);
+
+  useEffect(() => () => {
+    speechSessionRef.current += 1;
+    const synth = speechSynthesisRef.current;
+    if (synth) {
+      try {
+        synth.cancel();
+      } catch {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (
+      isManga ||
+      ttsStatus !== 'playing' ||
+      activeSpeechParagraph < 0 ||
+      !paragraphBlocks.length
+    ) {
+      return;
+    }
+
+    startTtsFromParagraph(activeSpeechParagraph);
+  }, [
+    ttsEnglishVoiceURI,
+    ttsLanguageMode,
+    ttsPitch,
+    ttsRate,
+    ttsVietnameseVoiceURI,
   ]);
 
   useEffect(() => {
@@ -1679,6 +2341,12 @@ export default function ChapterReader() {
       if (!isManga && key === 'n') {
         event.preventDefault();
         setShowReadingNote((value) => !value);
+        return;
+      }
+
+      if (!isManga && key === 'v') {
+        event.preventDefault();
+        toggleTtsPlayback();
       }
     };
 
@@ -1687,13 +2355,18 @@ export default function ChapterReader() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [
+    activeSpeechParagraph,
+    bookmarkTargetParagraph,
     isManga,
     navigate,
     nextChapter?.id,
+    paragraphBlocks.length,
     prevChapter?.id,
     showReadingNote,
     showSettings,
     storyId,
+    ttsSupported,
+    ttsStatus,
   ]);
 
   useEffect(() => {
@@ -2613,6 +3286,132 @@ export default function ChapterReader() {
           </button>
           <label>Nền: <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} /></label>
           <label>Chữ: <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} /></label>
+          <div className="reader-tts-group">
+            <span className="reader-tts-title">Đọc nghe</span>
+            {ttsSupported ? (
+              <>
+                <label>
+                  Chế độ:
+                  <select
+                    value={ttsLanguageMode}
+                    onChange={(e) => setTtsLanguageMode(String(e.target.value || TTS_LANGUAGE_MODES.auto))}
+                    style={{
+                      marginLeft: '4px',
+                      padding: '2px 6px',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      minWidth: '140px',
+                    }}
+                  >
+                    <option value={TTS_LANGUAGE_MODES.auto}>Tự động VI/EN</option>
+                    <option value={TTS_LANGUAGE_MODES.vietnamese}>Ưu tiên tiếng Việt</option>
+                    <option value={TTS_LANGUAGE_MODES.english}>Ưu tiên tiếng Anh</option>
+                  </select>
+                </label>
+                <label>
+                  Giọng Việt:
+                  <select
+                    value={ttsVietnameseVoiceURI}
+                    onChange={(e) => setTtsVietnameseVoiceURI(e.target.value)}
+                    style={{
+                      marginLeft: '4px',
+                      padding: '2px 6px',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      minWidth: '170px',
+                    }}
+                    disabled={!vietnameseTtsVoiceOptions.length}
+                  >
+                    {vietnameseTtsVoiceOptions.map((voice) => (
+                      <option key={voice.voiceURI} value={voice.voiceURI}>
+                        {`${voice.name} (${voice.lang})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Giọng Anh:
+                  <select
+                    value={ttsEnglishVoiceURI}
+                    onChange={(e) => setTtsEnglishVoiceURI(e.target.value)}
+                    style={{
+                      marginLeft: '4px',
+                      padding: '2px 6px',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      minWidth: '170px',
+                    }}
+                    disabled={!englishTtsVoiceOptions.length}
+                  >
+                    {englishTtsVoiceOptions.map((voice) => (
+                      <option key={voice.voiceURI} value={voice.voiceURI}>
+                        {`${voice.name} (${voice.lang})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Tốc độ đọc:
+                  <input
+                    type="range"
+                    min="0.7"
+                    max="1.6"
+                    step="0.1"
+                    value={ttsRate}
+                    onChange={(e) => setTtsRate(Number(e.target.value))}
+                  />
+                  {ttsRate.toFixed(1)}x
+                </label>
+                <label>
+                  Cao độ:
+                  <input
+                    type="range"
+                    min="0.8"
+                    max="1.4"
+                    step="0.1"
+                    value={ttsPitch}
+                    onChange={(e) => setTtsPitch(Number(e.target.value))}
+                  />
+                  {ttsPitch.toFixed(1)}x
+                </label>
+                <div className="reader-tts-actions">
+                  <button className="btn btn-outline btn-sm" type="button" onClick={toggleTtsPlayback}>
+                    {ttsStatus === 'playing'
+                      ? 'Tạm dừng đọc'
+                      : ttsStatus === 'paused'
+                        ? 'Tiếp tục đọc'
+                        : 'Đọc chương'}
+                  </button>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    type="button"
+                    onClick={() => stopTts()}
+                    disabled={ttsStatus === 'idle'}
+                  >
+                    Dừng
+                  </button>
+                </div>
+                {!hasVietnameseTtsVoice && (
+                  <span className="reader-tts-note">
+                    Máy chưa có giọng tiếng Việt, nên TTS có thể phát âm chưa tự nhiên.
+                  </span>
+                )}
+                {!hasEnglishTtsVoice && (
+                  <span className="reader-tts-note">
+                    Máy chưa có giọng tiếng Anh, nên đoạn English sẽ phải fallback sang giọng khác.
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="reader-tts-note">Trình duyệt này chưa hỗ trợ đọc nghe.</span>
+            )}
+          </div>
         </div>
       )}
 
@@ -2679,8 +3478,42 @@ export default function ChapterReader() {
               +
             </button>
           </div>
+          {!isManga && (
+            <>
+              <button
+                type="button"
+                className={`chapter-reader-tool ${ttsStatus === 'playing' ? 'active' : ''}`}
+                onClick={toggleTtsPlayback}
+                disabled={!ttsSupported || paragraphBlocks.length === 0}
+                title={ttsSupported ? 'Đọc truyện chữ bằng giọng máy' : 'Trình duyệt chưa hỗ trợ đọc nghe'}
+              >
+                {ttsStatus === 'playing'
+                  ? 'Tạm dừng đọc'
+                  : ttsStatus === 'paused'
+                    ? 'Tiếp tục đọc'
+                    : 'Đọc nghe'}
+              </button>
+              <button
+                type="button"
+                className="chapter-reader-tool"
+                onClick={() => stopTts()}
+                disabled={ttsStatus === 'idle'}
+              >
+                Dừng đọc
+              </button>
+              <span className="chapter-reader-shortcuts chapter-reader-status">
+                {ttsSupported
+                  ? ttsStatus === 'idle'
+                    ? 'TTS đang tắt'
+                    : ttsStatus === 'paused'
+                      ? `Đã tạm dừng ở đoạn ${Math.max(activeSpeechParagraph + 1, 1)}/${paragraphBlocks.length}`
+                      : `Đang đọc đoạn ${Math.max(activeSpeechParagraph + 1, 1)}/${paragraphBlocks.length}`
+                  : 'Trình duyệt chưa hỗ trợ TTS'}
+              </span>
+            </>
+          )}
           <span className="chapter-reader-shortcuts">
-            {isManga ? 'Phím tắt: S auto, [ ] tốc độ, A/D chương, B bookmark, C comment' : 'Phím tắt: S auto, [ ] tốc độ, A/D chương, B bookmark, N ghi chú, T setting'}
+            {isManga ? 'Phím tắt: S auto, [ ] tốc độ, A/D chương, B bookmark, C comment' : 'Phím tắt: S auto, V đọc nghe, [ ] tốc độ, A/D chương, B bookmark, N ghi chú, T setting'}
           </span>
         </div>
         <div className="chapter-reaction-wrap">
@@ -2771,6 +3604,7 @@ export default function ChapterReader() {
                 return (
                   <div
                     key={`${chapterId}-paragraph-${paragraphIndex}`}
+                    className={`chapter-reader-paragraph ${activeSpeechParagraph === paragraphIndex ? 'is-speaking' : ''}`}
                     ref={(node) => {
                       if (node) {
                         paragraphRefs.current[paragraphIndex] = node;
@@ -2802,6 +3636,7 @@ export default function ChapterReader() {
                       </button>
                     )}
                     <p
+                      className="chapter-reader-paragraph-text"
                       style={{
                         margin: 0,
                         whiteSpace: 'pre-wrap',
@@ -2809,6 +3644,11 @@ export default function ChapterReader() {
                     >
                       {paragraph}
                     </p>
+                    {activeSpeechParagraph === paragraphIndex && (
+                      <div className="chapter-reader-paragraph-status">
+                        Đang đọc đoạn này
+                      </div>
+                    )}
                     {bookmarked && (
                       <div
                         style={{
