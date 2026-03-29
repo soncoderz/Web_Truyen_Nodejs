@@ -4,9 +4,14 @@ import { useAuth } from '../context/AuthContext';
 import {
   getAdminStats, getManageStories, getCategories, getAuthors, getReports, getManageChaptersByStory,
   getStoriesForReview, getChaptersForReview,
+  getAdminComments,
   createStory, updateStory, deleteStory,
   createCategory, updateCategory, deleteCategory,
+
   createChapter, updateChapter, deleteChapter, generateChapterSummary,
+
+  deleteComment,
+
   reviewStory, reviewChapter,
   importRemoteMangaPages, scanRemoteMangaSource, updateReportStatus, uploadImage, uploadMangaPages
 } from '../services/api';
@@ -85,9 +90,12 @@ export default function Admin() {
   const [categories, setCategories] = useState([]);
   const [authors, setAuthors] = useState([]);
   const [reports, setReports] = useState([]);
+  const [adminComments, setAdminComments] = useState([]);
   const [pendingStories, setPendingStories] = useState([]);
   const [pendingChapters, setPendingChapters] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [commentScope, setCommentScope] = useState('ALL');
+  const [commentKeyword, setCommentKeyword] = useState('');
 
   // Story
   const [showStoryForm, setShowStoryForm] = useState(false);
@@ -175,18 +183,20 @@ export default function Admin() {
 
   const clearScannedImageSelection = () => {
     setSelectedScannedImages([]);
+
   };
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [statsRes, storiesRes, catsRes, authorsRes, reportsRes, pendingStoriesRes, pendingChaptersRes] = await Promise.all([
+      const [statsRes, storiesRes, catsRes, authorsRes, reportsRes, pendingStoriesRes, pendingChaptersRes, commentsRes] = await Promise.all([
         getAdminStats(), getManageStories(), getCategories(), getAuthors(), getReports(),
-        getStoriesForReview(), getChaptersForReview()
+        getStoriesForReview(), getChaptersForReview(), getAdminComments({ scope: commentScope, q: commentKeyword })
       ]);
       setStats(statsRes.data); setStories(storiesRes.data); setCategories(catsRes.data);
       setAuthors(authorsRes.data); setReports(reportsRes.data);
       setPendingStories(pendingStoriesRes.data); setPendingChapters(pendingChaptersRes.data);
+      setAdminComments(commentsRes.data || []);
     } catch (e) {
       console.error(e);
       notifyApiError(e, 'Không tải được dữ liệu quản trị.');
@@ -588,6 +598,24 @@ export default function Admin() {
     }
   };
 
+  const handleDeleteAdminComment = async (comment) => {
+    if (!comment?.id) {
+      return;
+    }
+
+    if (!window.confirm('Xóa bình luận này?')) {
+      return;
+    }
+
+    try {
+      await deleteComment(comment.id);
+      await loadAdminComments();
+      notifySuccess('Đã xóa bình luận.');
+    } catch (error) {
+      notifyApiError(error, 'Không xóa được bình luận.');
+    }
+  };
+
   const approvedStoryGroups = getApprovedStoriesByUploader(stories);
 
   if (loading) return <div className="loading"><div className="spinner" />Đang tải...</div>;
@@ -596,9 +624,10 @@ export default function Admin() {
     <div className="container">
       <h1 className="page-title">⚙️ Quản trị hệ thống</h1>
       <div className="tabs">
-        {['dashboard', 'statistics', 'moderation', 'approvedUsers', 'stories', 'categories', 'authors', 'chapters', 'reports'].map(t => (
+        {['dashboard', 'statistics', 'moderation', 'comments', 'approvedUsers', 'stories', 'categories', 'authors', 'chapters', 'reports'].map(t => (
           <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
             {t === 'moderation' && `Duyệt (${pendingStories.length + pendingChapters.length})`}
+            {t === 'comments' && `💬 Bình luận (${adminComments.length})`}
             {t === 'approvedUsers' && `Đã duyệt theo user (${approvedStoryGroups.length})`}
             {t === 'dashboard' && '📊 Dashboard'}
             {t === 'statistics' && '📈 Thống kê'}
@@ -668,6 +697,101 @@ export default function Admin() {
               </table></div>
             ) : <div className="empty-state"><p>Không có chương nào đang chờ.</p></div>}
           </div>
+        </div>
+      )}
+
+      {tab === 'comments' && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <div>
+              <h2 style={{ marginBottom: '0.35rem' }}>Moderation bình luận</h2>
+              <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                Xem comment mới nhất, lọc theo phạm vi và xóa nhanh khi cần.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <select className="form-control" value={commentScope} onChange={(e) => setCommentScope(e.target.value)} style={{ minWidth: '140px' }}>
+                <option value="ALL">Tất cả</option>
+                <option value="STORY">Comment truyện</option>
+                <option value="CHAPTER">Comment chương</option>
+                <option value="PAGE">Comment trang ảnh</option>
+              </select>
+              <input
+                className="form-control"
+                style={{ minWidth: '220px' }}
+                value={commentKeyword}
+                onChange={(e) => setCommentKeyword(e.target.value)}
+                placeholder="Tìm theo user hoặc nội dung..."
+                onKeyDown={(e) => e.key === 'Enter' && loadAdminComments()}
+              />
+              <button className="btn btn-outline" onClick={() => loadAdminComments()}>
+                Lọc
+              </button>
+              <button
+                className="btn btn-outline"
+                onClick={() => {
+                  setCommentScope('ALL');
+                  setCommentKeyword('');
+                  window.requestAnimationFrame(() => loadAdminComments('ALL', ''));
+                }}
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+
+          {adminComments.length > 0 ? (
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Người viết</th>
+                    <th>Phạm vi</th>
+                    <th>Nội dung</th>
+                    <th>Thời gian</th>
+                    <th>Hành động</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminComments.map((comment) => (
+                    <tr key={comment.id}>
+                      <td>
+                        <strong>{comment.username || 'Ẩn danh'}</strong>
+                      </td>
+                      <td>
+                        <div style={{ display: 'grid', gap: '0.2rem' }}>
+                          <span>{comment.scope === 'PAGE' ? 'Trang ảnh' : comment.scope === 'CHAPTER' ? 'Chương' : 'Truyện'}</span>
+                          <small style={{ color: 'var(--text-secondary)' }}>
+                            {comment.storyTitle || comment.storyId}
+                            {comment.chapterId && ` · Ch.${comment.chapterNumber || '?'}${comment.chapterTitle ? `: ${comment.chapterTitle}` : ''}`}
+                            {Number.isInteger(Number(comment.pageIndex)) && ` · Trang ${Number(comment.pageIndex) + 1}`}
+                          </small>
+                        </div>
+                      </td>
+                      <td style={{ minWidth: '260px' }}>
+                        <div style={{ display: 'grid', gap: '0.25rem' }}>
+                          {comment.replyToUsername && (
+                            <small style={{ color: 'var(--accent)' }}>{`Trả lời @${comment.replyToUsername}`}</small>
+                          )}
+                          <span>{comment.preview || (comment.gifUrl ? '[GIF]' : '(trống)')}</span>
+                        </div>
+                      </td>
+                      <td>{new Date(comment.createdAt).toLocaleString('vi-VN')}</td>
+                      <td>
+                        <button className="btn btn-sm btn-danger" onClick={() => handleDeleteAdminComment(comment)}>
+                          Xóa
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty-state">
+              <p>Không có bình luận nào khớp bộ lọc hiện tại.</p>
+            </div>
+          )}
         </div>
       )}
 

@@ -64,9 +64,15 @@ function pickValue(envKey, propertyKey, fallback = "") {
     return envValue;
   }
 
+
   const dottedEnvValue = process.env[propertyKey];
   if (dottedEnvValue !== undefined && dottedEnvValue !== "") {
     return dottedEnvValue;
+
+  const propertyEnvValue = process.env[propertyKey];
+  if (propertyEnvValue !== undefined && propertyEnvValue !== "") {
+    return propertyEnvValue;
+
   }
 
   const propertyValue = legacyProperties[propertyKey];
