@@ -215,6 +215,8 @@ export const getReactionBatchSummary = (targets) =>
   api.post("/reactions/batch-summary", { targets });
 export const setReaction = (data) => api.put("/reactions", data);
 
+// Leaderboard
+export const getTopCoins = () => api.get("/leaderboard/top-coins");
 
 // Reports
 export const createReport = (data) => api.post("/reports", data);
