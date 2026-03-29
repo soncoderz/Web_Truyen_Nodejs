@@ -1,42 +1,13 @@
 const cors = require("cors");
 const express = require("express");
-const env = require("./config/env");
+const { corsOptions } = require("./config/cors");
 const { optionalAuth } = require("./middleware/auth");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
-
-function wildcardToRegex(pattern) {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-  return new RegExp(`^${escaped}$`, "i");
-}
-
-const allowedOriginMatchers = env.corsOriginPatterns.map(wildcardToRegex);
-
-function isAllowedOrigin(origin) {
-  if (!origin) {
-    return true;
-  }
-
-  return allowedOriginMatchers.some((regex) => regex.test(origin));
-}
 
 function createApp() {
   const app = express();
 
-  app.use(
-    cors({
-      origin(origin, callback) {
-        if (isAllowedOrigin(origin)) {
-          return callback(null, true);
-        }
-        return callback(new Error("Not allowed by CORS"));
-      },
-      credentials: true,
-      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Authorization", "Content-Type"],
-      exposedHeaders: ["Authorization"],
-      maxAge: 3600,
-    }),
-  );
+  app.use(cors(corsOptions));
 
   app.use(express.json({ limit: "20mb" }));
   app.use(express.urlencoded({ extended: true, limit: "20mb" }));
@@ -59,6 +30,7 @@ function createApp() {
   app.use("/api/reading-history", require("./routes/readingHistory"));
   app.use("/api/payments", require("./routes/payments"));
   app.use("/api/notifications", require("./routes/notifications"));
+  app.use("/api/reactions", require("./routes/reactions"));
   app.use("/api/reports", require("./routes/reports"));
   app.use("/api/gifs", require("./routes/gifs"));
   app.use("/api/admin", require("./routes/admin"));

@@ -141,6 +141,8 @@ export const deleteChapter = (id) => api.delete(`/chapters/${id}`);
 // Comments
 export const getCommentsByStory = (storyId) =>
   api.get(`/comments/story/${storyId}`);
+export const getCommentThreadByChapter = (chapterId) =>
+  api.get(`/comments/chapter/${chapterId}/thread`);
 export const getCommentsByChapter = (chapterId) =>
   api.get(`/comments/chapter/${chapterId}`);
 export const getCommentsByPage = (chapterId, pageIndex) =>
@@ -183,6 +185,14 @@ export const exchangeWalletToCoins = (amount) =>
   api.post("/payments/coins/exchange", { amount });
 export const unlockLicensedStory = (storyId, paymentMethod = "WALLET") =>
   api.post(`/payments/stories/${storyId}/unlock`, { paymentMethod });
+export const unlockChapter = (chapterId) =>
+  api.post(`/payments/chapters/${chapterId}/unlock`);
+export const unlockChapterBundle = (storyId, chapterIds) =>
+  api.post(`/payments/stories/${storyId}/chapter-bundles/unlock`, { chapterIds });
+export const rentStory = (storyId) =>
+  api.post(`/payments/stories/${storyId}/rent`);
+export const supportAuthor = (storyId, amount) =>
+  api.post(`/payments/stories/${storyId}/support`, { amount });
 export const unlockProfileSkin = (skinId) =>
   api.post(`/payments/skins/${skinId}/unlock`);
 export const equipProfileSkin = (skinId) =>
@@ -194,8 +204,17 @@ export const getUnreadCount = () => api.get("/notifications/unread-count");
 export const markAsRead = (id) => api.put(`/notifications/${id}/read`);
 export const markAllAsRead = () => api.put("/notifications/read-all");
 
+
 // Daily Check-in
 export const dailyCheckIn = () => api.post("/checkin");
+
+// Reactions
+export const getReactionSummary = (targetType, targetId) =>
+  api.get("/reactions/summary", { params: { targetType, targetId } });
+export const getReactionBatchSummary = (targets) =>
+  api.post("/reactions/batch-summary", { targets });
+export const setReaction = (data) => api.put("/reactions", data);
+
 
 // Reports
 export const createReport = (data) => api.post("/reports", data);
@@ -204,10 +223,16 @@ export const updateReportStatus = (id, status) =>
   api.put(`/reports/${id}/status`, { status });
 
 // GIFs (Giphy proxy)
-export const searchGifs = (q, limit = 12) =>
-  api.get("/gifs/search", { params: { q, limit } });
-export const trendingGifs = (limit = 12) =>
-  api.get("/gifs/trending", { params: { limit } });
+export const searchGifs = (q, limit = 12, config = {}) =>
+  api.get("/gifs/search", {
+    params: { q, limit },
+    ...config,
+  });
+export const trendingGifs = (limit = 12, config = {}) =>
+  api.get("/gifs/trending", {
+    params: { limit },
+    ...config,
+  });
 
 // Admin
 export const getAdminStats = () => api.get("/admin/stats");

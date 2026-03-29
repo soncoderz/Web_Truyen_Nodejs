@@ -3,12 +3,78 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   getNotifications,
-  getUnreadCount,
   getWalletSummary,
   markAllAsRead,
   markAsRead,
 } from '../services/api';
+import { connectRealtime, REALTIME_EVENTS } from '../services/realtime';
+import { toast } from '../services/toast';
 import { useTheme } from '../context/ThemeContext';
+
+function getNotificationTarget(notification) {
+  if (notification?.storyId && notification?.chapterId) {
+    return `/story/${notification.storyId}/chapter/${notification.chapterId}`;
+  }
+
+  if (notification?.storyId) {
+    return `/story/${notification.storyId}`;
+  }
+
+  return null;
+}
+
+function getNotificationCover(notification) {
+  return notification?.storyCoverImage || null;
+}
+
+function getNotificationHeadline(notification) {
+  if (notification?.storyTitle) {
+    return notification.storyTitle;
+  }
+
+  return "Truyen moi cap nhat";
+}
+
+function getNotificationSubline(notification) {
+  if (Number.isFinite(Number(notification?.chapterNumber))) {
+    const chapterTitle = String(notification?.chapterTitle || "").trim();
+    return chapterTitle
+      ? `Chuong ${notification.chapterNumber}: ${chapterTitle}`
+      : `Chuong ${notification.chapterNumber}`;
+  }
+
+  if (notification?.chapterTitle) {
+    return notification.chapterTitle;
+  }
+
+  return notification?.message || "";
+}
+
+function mergeNotification(items, notification) {
+  if (!notification?.id) {
+    return items;
+  }
+
+  const existingIndex = items.findIndex((item) => item.id === notification.id);
+  if (existingIndex === -1) {
+    return [notification, ...items];
+  }
+
+  const next = [...items];
+  next[existingIndex] = {
+    ...next[existingIndex],
+    ...notification,
+  };
+  return next;
+}
+
+function markNotificationAsRead(items, notificationId) {
+  return items.map((item) =>
+    item.id === notificationId
+      ? { ...item, isRead: true }
+      : item,
+  );
+}
 
 export default function Header() {
   const { user, logout, isAdmin } = useAuth();
@@ -18,7 +84,6 @@ export default function Header() {
   const [showNotif, setShowNotif] = useState(false);
   const [showTheme, setShowTheme] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [rewardPreview, setRewardPreview] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const menuRef = useRef(null);
@@ -30,21 +95,28 @@ export default function Header() {
     location.pathname === '/profile' && activeProfileTab === 'rewards';
   const missionSummary = rewardPreview?.mission || null;
   const coinBalance = Number(rewardPreview?.coinBalance || 0);
+  const unreadCount = notifications.reduce(
+    (count, item) => count + (item.isRead ? 0 : 1),
+    0,
+  );
 
   useEffect(() => {
     if (!user) {
       setNotifications([]);
-      setUnreadCount(0);
+      return;
+    }
+
+    getNotifications()
+      .then((response) => setNotifications(response.data))
+      .catch(() => setNotifications([]));
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
       setRewardPreview(null);
       return;
     }
 
-    getUnreadCount()
-      .then((response) => setUnreadCount(response.data.count))
-      .catch(() => {});
-    getNotifications()
-      .then((response) => setNotifications(response.data))
-      .catch(() => {});
     getWalletSummary()
       .then((response) =>
         setRewardPreview({
@@ -53,7 +125,44 @@ export default function Header() {
         }),
       )
       .catch(() => setRewardPreview(null));
-  }, [user, location]);
+  }, [user, location.pathname, location.search]);
+
+  useEffect(() => {
+    const accessToken = user?.accessToken || user?.token || null;
+    const socket = connectRealtime(accessToken);
+    if (!socket || !user) {
+      return undefined;
+    }
+
+    const handleNewNotification = (notification) => {
+      setNotifications((items) => mergeNotification(items, notification));
+      toast.info(notification?.message || 'Co thong bao moi.', {
+        title: 'Thong bao moi',
+        actionLabel: notification?.chapterId ? 'Mo chuong' : 'Mo truyen',
+        imageUrl: getNotificationCover(notification),
+        imageAlt: getNotificationHeadline(notification),
+        imageFallback: getNotificationHeadline(notification),
+        duration: 7000,
+        onClick: () => {
+          if (!notification?.isRead && notification?.id) {
+            setNotifications((items) => markNotificationAsRead(items, notification.id));
+            markAsRead(notification.id).catch(() => {});
+          }
+
+          const target = getNotificationTarget(notification);
+          if (target) {
+            navigate(target);
+          }
+        },
+      });
+    };
+
+    socket.on(REALTIME_EVENTS.notificationNew, handleNewNotification);
+
+    return () => {
+      socket.off(REALTIME_EVENTS.notificationNew, handleNewNotification);
+    };
+  }, [user, navigate]);
 
   useEffect(() => {
     const handler = (event) => {
@@ -77,21 +186,25 @@ export default function Header() {
     navigate('/login');
   };
 
-  const handleNotifClick = async (notification) => {
+  const handleNotifClick = (notification) => {
+    if (!notification?.id) {
+      return;
+    }
+
     if (!notification.isRead) {
-      await markAsRead(notification.id);
-      setUnreadCount((count) => Math.max(0, count - 1));
+      setNotifications((items) => markNotificationAsRead(items, notification.id));
+      markAsRead(notification.id).catch(() => {});
     }
 
     setShowNotif(false);
-    if (notification.storyId) {
-      navigate(`/story/${notification.storyId}`);
+    const target = getNotificationTarget(notification);
+    if (target) {
+      navigate(target);
     }
   };
 
   const handleMarkAll = async () => {
     await markAllAsRead();
-    setUnreadCount(0);
     setNotifications((items) => items.map((item) => ({ ...item, isRead: true })));
   };
 
@@ -99,7 +212,7 @@ export default function Header() {
     <header className="header">
       <div className="header-inner">
         <Link to="/" className="logo">
-          TruyệnHub
+          TruyenHub
         </Link>
 
         <button className="hamburger" onClick={() => setMobileOpen((value) => !value)}>
@@ -114,14 +227,14 @@ export default function Header() {
             className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}
             onClick={() => setMobileOpen(false)}
           >
-            Trang chủ
+            Trang chu
           </Link>
           <Link
             to="/stories"
             className={`nav-link ${location.pathname === '/stories' ? 'active' : ''}`}
             onClick={() => setMobileOpen(false)}
           >
-            Danh sách truyện
+            Danh sach truyen
           </Link>
           {user && (
             <Link
@@ -129,7 +242,7 @@ export default function Header() {
               className={`nav-link ${location.pathname === '/studio' ? 'active' : ''}`}
               onClick={() => setMobileOpen(false)}
             >
-              Đăng truyện
+              Dang truyen
             </Link>
           )}
           {isAdmin() && (
@@ -138,7 +251,7 @@ export default function Header() {
               className={`nav-link ${location.pathname === '/admin' ? 'active' : ''}`}
               onClick={() => setMobileOpen(false)}
             >
-              Quản trị
+              Quan tri
             </Link>
           )}
         </nav>
@@ -147,14 +260,14 @@ export default function Header() {
           <div ref={themeRef} className="theme-switcher">
             <button
               className="btn-icon"
-              title="Đổi màu giao diện"
+              title="Doi mau giao dien"
               onClick={() => setShowTheme((value) => !value)}
             >
-              🎨
+              &#127912;
             </button>
             {showTheme && (
               <div className="theme-dropdown">
-                <div className="theme-title">Chọn giao diện</div>
+                <div className="theme-title">Chon giao dien</div>
                 {Object.entries(themes).map(([key, preset]) => (
                   <button
                     key={key}
@@ -174,7 +287,7 @@ export default function Header() {
                       <strong>{preset.name}</strong>
                       <small>{preset.description}</small>
                     </div>
-                    {themeKey === key && <span className="theme-check">✓</span>}
+                    {themeKey === key && <span className="theme-check">&#10003;</span>}
                   </button>
                 ))}
               </div>
@@ -190,9 +303,9 @@ export default function Header() {
                   title={
                     missionSummary
                       ? missionSummary.completed
-                        ? 'Nhiệm vụ hôm nay đã hoàn thành'
-                        : `Nhiệm vụ hôm nay: ${missionSummary.progressCount}/${missionSummary.target}`
-                      : 'Nhiệm vụ hằng ngày'
+                        ? 'Nhiem vu hom nay da hoan thanh'
+                        : `Nhiem vu hom nay: ${missionSummary.progressCount}/${missionSummary.target}`
+                      : 'Nhiem vu hang ngay'
                   }
                   style={
                     isRewardsActive
@@ -204,7 +317,7 @@ export default function Header() {
                       : undefined
                   }
                 >
-                  🎯
+                  &#127919;
                   {missionSummary &&
                     !missionSummary.completed &&
                     missionSummary.remainingCount > 0 && (
@@ -212,7 +325,7 @@ export default function Header() {
                     )}
                 </Link>
                 <div className="mission-preview-dropdown">
-                  <div className="mission-preview-title">Nhiệm vụ hôm nay</div>
+                  <div className="mission-preview-title">Nhiem vu hom nay</div>
                   <div className="mission-preview-value">
                     {missionSummary
                       ? `${missionSummary.progressCount}/${missionSummary.target}`
@@ -220,15 +333,15 @@ export default function Header() {
                   </div>
                   <div className="mission-preview-meta">
                     {missionSummary?.completed
-                      ? 'Đã hoàn thành và nhận thưởng.'
-                      : `Còn ${missionSummary?.remainingCount || 3} chương để nhận xu.`}
+                      ? 'Da hoan thanh va nhan thuong.'
+                      : `Con ${missionSummary?.remainingCount || 3} chuong de nhan xu.`}
                   </div>
                   <div className="mission-preview-stats">
                     <span>Streak</span>
-                    <strong>{missionSummary?.streak || 0} ngày</strong>
+                    <strong>{missionSummary?.streak || 0} ngay</strong>
                   </div>
                   <div className="mission-preview-stats">
-                    <span>Xu hiện có</span>
+                    <span>Xu hien co</span>
                     <strong>{coinBalance.toLocaleString('vi-VN')}</strong>
                   </div>
                 </div>
@@ -236,7 +349,7 @@ export default function Header() {
 
               <div ref={notifRef} style={{ position: 'relative' }}>
                 <button className="btn-icon" onClick={() => setShowNotif((value) => !value)}>
-                  🔔
+                  &#128276;
                   {unreadCount > 0 && <span className="badge">{unreadCount}</span>}
                 </button>
                 {showNotif && (
@@ -253,7 +366,7 @@ export default function Header() {
                       <strong style={{ fontSize: '0.9rem' }}>Thong bao</strong>
                       {unreadCount > 0 && (
                         <button className="btn btn-sm btn-outline" onClick={handleMarkAll}>
-                          Đọc tất cả
+                          Doc tat ca
                         </button>
                       )}
                     </div>
@@ -265,20 +378,41 @@ export default function Header() {
                           color: 'var(--text-secondary)',
                         }}
                       >
-                        Không có thông báo
+                        Khong co thong bao
                       </div>
                     ) : (
                       notifications.slice(0, 20).map((notification) => (
-                        <div
+                        <button
                           key={notification.id}
+                          type="button"
                           className={`notification-item ${!notification.isRead ? 'unread' : ''}`}
                           onClick={() => handleNotifClick(notification)}
                         >
-                          <div>{notification.message}</div>
-                          <small style={{ color: 'var(--text-secondary)' }}>
-                            {new Date(notification.createdAt).toLocaleDateString('vi-VN')}
-                          </small>
-                        </div>
+                          <span className="notification-story-cover" aria-hidden="true">
+                            {getNotificationCover(notification) ? (
+                              <img
+                                src={getNotificationCover(notification)}
+                                alt={getNotificationHeadline(notification)}
+                              />
+                            ) : (
+                              <span className="notification-story-cover-fallback">
+                                {getNotificationHeadline(notification).slice(0, 1).toUpperCase()}
+                              </span>
+                            )}
+                          </span>
+                          <span className="notification-content">
+                            <strong className="notification-title">
+                              {getNotificationHeadline(notification)}
+                            </strong>
+                            <span className="notification-subline">
+                              {getNotificationSubline(notification)}
+                            </span>
+                            <span className="notification-message">{notification.message}</span>
+                            <small className="notification-date">
+                              {new Date(notification.createdAt).toLocaleDateString('vi-VN')}
+                            </small>
+                          </span>
+                        </button>
                       ))
                     )}
                   </div>
@@ -302,7 +436,7 @@ export default function Header() {
                 {showMenu && (
                   <div className="user-dropdown">
                     <Link to="/studio" onClick={() => setShowMenu(false)}>
-                      Đăng truyện
+                      Dang truyen
                     </Link>
                     <Link to="/profile" onClick={() => setShowMenu(false)}>
                       Ho so
@@ -311,12 +445,12 @@ export default function Header() {
                       Bookmark
                     </Link>
                     <Link to="/profile?tab=history" onClick={() => setShowMenu(false)}>
-                      Lịch sử đọc
+                      Lich su doc
                     </Link>
                     <Link to="/profile?tab=rewards" onClick={() => setShowMenu(false)}>
-                      Nhiệm vụ và skin
+                      Nhiem vu va skin
                     </Link>
-                    <button onClick={handleLogout}>Đăng xuất</button>
+                    <button onClick={handleLogout}>Dang xuat</button>
                   </div>
                 )}
               </div>
@@ -324,10 +458,10 @@ export default function Header() {
           ) : (
             <>
               <Link to="/login" className="btn btn-outline btn-sm">
-                Đăng nhập
+                Dang nhap
               </Link>
               <Link to="/register" className="btn btn-primary btn-sm">
-                Đăng ký
+                Dang ky
               </Link>
             </>
           )}
