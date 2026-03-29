@@ -156,6 +156,8 @@ export const deleteComment = (id) => api.delete(`/comments/${id}`);
 
 // Users
 export const getPublicUserProfile = (id) => api.get(`/users/${id}/public`);
+export const getMyProfileSettings = () => api.get("/users/me/profile");
+export const updateMyProfileSettings = (data) => api.put("/users/me/profile", data);
 
 // Ratings
 export const rateStory = (data) => api.post("/ratings", data);

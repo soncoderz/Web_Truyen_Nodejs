@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import ProfileReadmeCard from "../components/ProfileReadmeCard";
 import RankedAvatar from "../components/RankedAvatar";
 import { getPublicUserProfile } from "../services/api";
+import { repairMojibakeText } from "../utils/textRepair";
 
 function formatJoinedDate(value) {
   if (!value) {
@@ -13,6 +15,15 @@ function formatJoinedDate(value) {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+function getPublicBio(profile) {
+  const customBio = String(profile?.bio || "").trim();
+  if (customBio) {
+    return repairMojibakeText(customBio);
+  }
+
+  return "Hồ sơ công khai được trang trí theo skin đang trang bị. Bấm vào avatar ở bình luận để xem nhanh rank frame, streak và dấu ấn đọc truyện.";
 }
 
 export default function UserProfile() {
@@ -76,6 +87,11 @@ export default function UserProfile() {
     );
   }
 
+  const publicAccentColor = profile.accentColor || profile.activeSkin?.accent;
+  const publicBio = getPublicBio(profile);
+  const publicHeadline = String(profile.headline || "").trim();
+  const publicReadme = String(profile.readme || "").trim();
+
   return (
     <div className="container">
       <div
@@ -83,7 +99,7 @@ export default function UserProfile() {
         style={{
           "--public-hero-bg": profile.activeSkin?.background,
           "--public-hero-border": profile.activeSkin?.border,
-          "--public-hero-accent": profile.activeSkin?.accent,
+          "--public-hero-accent": publicAccentColor,
           "--public-hero-secondary": profile.activeSkin?.secondaryAccent,
           "--public-hero-text": profile.activeSkin?.textColor,
         }}
@@ -104,11 +120,13 @@ export default function UserProfile() {
                 Thành viên từ {formatJoinedDate(profile.createdAt)}
               </span>
             </div>
-            <h1>{profile.username}</h1>
-            <p>
-              Hồ sơ công khai được trang trí theo skin đang trang bị. Bấm vào avatar ở bình luận
-              để xem nhanh rank frame, streak và dấu ấn đọc truyện.
-            </p>
+            <h1>{repairMojibakeText(profile.username || "")}</h1>
+            {publicHeadline && (
+              <div className="public-profile-headline">
+                {repairMojibakeText(publicHeadline)}
+              </div>
+            )}
+            <p>{publicBio}</p>
           </div>
         </div>
 
@@ -140,14 +158,48 @@ export default function UserProfile() {
         </div>
       </div>
 
+      <ProfileReadmeCard
+        ownerLabel={profile.username}
+        content={publicReadme}
+        placeholder="Người dùng này chưa thêm README cho profile."
+      />
+
       <div className="public-profile-grid">
+        {(publicHeadline || profile.bio || profile.accentColor) && (
+          <div className="card public-profile-panel public-profile-about-panel">
+            <div className="public-profile-panel-head">
+              <div>
+                <h2>Dấu ấn cá nhân</h2>
+                <p>Phần này do chính người dùng tự tùy biến trên hồ sơ của họ.</p>
+              </div>
+              {profile.accentColor && (
+                <span className="public-profile-accent-pill">
+                  <span
+                    className="public-profile-accent-dot"
+                    style={{ background: publicAccentColor }}
+                  />
+                  {profile.accentColor}
+                </span>
+              )}
+            </div>
+            <div className="public-profile-about-copy">
+              {publicHeadline && (
+                <strong>{repairMojibakeText(publicHeadline)}</strong>
+              )}
+              <p>{publicBio}</p>
+            </div>
+          </div>
+        )}
+
         <div className="card public-profile-panel">
           <div className="public-profile-panel-head">
             <div>
               <h2>Khung hồ sơ hiện tại</h2>
-              <p>{profile.activeSkin?.description}</p>
+              <p>{repairMojibakeText(profile.activeSkin?.description || "")}</p>
             </div>
-            <span className="category-tag">{profile.activeSkin?.name}</span>
+            <span className="category-tag">
+              {repairMojibakeText(profile.activeSkin?.name || "Starter")}
+            </span>
           </div>
           <div className="public-profile-skin-showcase">
             <RankedAvatar
@@ -157,10 +209,11 @@ export default function UserProfile() {
               showRibbon
             />
             <div className="public-profile-skin-copy">
-              <strong>{profile.activeSkin?.name}</strong>
+              <strong>{repairMojibakeText(profile.activeSkin?.name || "")}</strong>
               <span>{profile.activeSkin?.tier || "Starter"} Frame</span>
               <p>
-                Viền này sẽ xuất hiện xuyên suốt ở hồ sơ công khai và phần bình luận dưới truyện.
+                Viền này sẽ xuất hiện xuyên suốt ở hồ sơ công khai và phần bình luận
+                dưới truyện.
               </p>
             </div>
           </div>
@@ -181,8 +234,8 @@ export default function UserProfile() {
               {profile.badges.map((badge) => (
                 <div key={badge.id} className="public-badge-card">
                   <small>{badge.requiredStreak} ngày</small>
-                  <strong>{badge.name}</strong>
-                  <p>{badge.description}</p>
+                  <strong>{repairMojibakeText(badge.name || "")}</strong>
+                  <p>{repairMojibakeText(badge.description || "")}</p>
                 </div>
               ))}
             </div>
@@ -221,7 +274,7 @@ export default function UserProfile() {
                     )}
                   </div>
                   <div className="story-info">
-                    <h3>{story.title}</h3>
+                    <h3>{repairMojibakeText(story.title || "")}</h3>
                     <div className="story-meta">
                       <span>{story.type === "MANGA" ? "Manga" : "Novel"}</span>
                       <span>{story.followers || 0} theo dõi</span>

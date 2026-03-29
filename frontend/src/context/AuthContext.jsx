@@ -37,6 +37,22 @@ export function AuthProvider({ children }) {
     setUser(userData);
   };
 
+  const updateUser = (patch) => {
+    setUser((currentUser) => {
+      if (!currentUser) {
+        return currentUser;
+      }
+
+      const nextUser =
+        typeof patch === 'function'
+          ? patch(currentUser)
+          : { ...currentUser, ...patch };
+
+      localStorage.setItem('user', JSON.stringify(nextUser));
+      return nextUser;
+    });
+  };
+
   const logout = () => {
     localStorage.removeItem('user');
     setUser(null);
@@ -47,7 +63,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loginUser, logout, isAdmin, loading }}>
+    <AuthContext.Provider value={{ user, loginUser, updateUser, logout, isAdmin, loading }}>
       {children}
     </AuthContext.Provider>
   );

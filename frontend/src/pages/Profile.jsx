@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
+import ProfileReadmeCard from '../components/ProfileReadmeCard';
 import RankedAvatar from '../components/RankedAvatar';
 import { useAuth } from '../context/AuthContext';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
@@ -13,10 +14,13 @@ import {
   getChapter,
   getChaptersByStory,
   getFollowedStories,
+  getMyProfileSettings,
   getReadingHistory,
   getStory,
   getWalletSummary,
+  uploadImage,
   unlockProfileSkin,
+  updateMyProfileSettings,
 } from '../services/api';
 import { toast, toastFromError } from '../services/toast';
 import { getReadChapters } from '../utils/readingStorage';
@@ -217,8 +221,50 @@ function getEquippedProfileSkin(walletSummary) {
   );
 }
 
+const DEFAULT_PROFILE_SETTINGS = {
+  avatar: '',
+  headline: '',
+  bio: '',
+  accentColor: '',
+  readme: '',
+  limits: {
+    headline: 80,
+    bio: 320,
+    readme: 8000,
+  },
+};
+
+const PROFILE_ACCENT_PRESETS = [
+  '#8B5CF6',
+  '#EC4899',
+  '#F97316',
+  '#14B8A6',
+  '#3B82F6',
+  '#FACC15',
+];
+
+function normalizeHexColor(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return /^#[0-9A-F]{6}$/.test(normalized) ? normalized : '';
+}
+
+function normalizeProfileSettings(settings) {
+  return {
+    avatar: String(settings?.avatar || ''),
+    headline: String(settings?.headline || ''),
+    bio: String(settings?.bio || ''),
+    accentColor: normalizeHexColor(settings?.accentColor),
+    readme: String(settings?.readme || ''),
+    limits: {
+      headline: Number(settings?.limits?.headline || DEFAULT_PROFILE_SETTINGS.limits.headline),
+      bio: Number(settings?.limits?.bio || DEFAULT_PROFILE_SETTINGS.limits.bio),
+      readme: Number(settings?.limits?.readme || DEFAULT_PROFILE_SETTINGS.limits.readme),
+    },
+  };
+}
+
 export default function Profile() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, updateUser, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState(searchParams.get('tab') || 'history');
@@ -235,6 +281,10 @@ export default function Profile() {
   const [exchangeAmount, setExchangeAmount] = useState(1000);
   const [financeBusy, setFinanceBusy] = useState(false);
   const [financeMessage, setFinanceMessage] = useState('');
+  const [profileSettings, setProfileSettings] = useState(DEFAULT_PROFILE_SETTINGS);
+  const [profileForm, setProfileForm] = useState(DEFAULT_PROFILE_SETTINGS);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const {
     bookmarks,
@@ -318,20 +368,24 @@ export default function Profile() {
     setLoading(true);
 
     try {
-      const [historyRes, followedRes, walletRes] = await Promise.all([
+      const [historyRes, followedRes, walletRes, profileRes] = await Promise.all([
         getReadingHistory(),
         getFollowedStories(),
         getWalletSummary(),
+        getMyProfileSettings(),
       ]);
 
       const historyItems = historyRes.data || [];
       const followedItems = (followedRes.data || []).filter((story) => story?.id || story?._id);
       const wallet = walletRes.data || null;
       const purchasedIds = wallet?.purchasedStoryIds || [];
+      const nextProfileSettings = normalizeProfileSettings(profileRes.data?.settings);
 
       setHistory(historyItems);
       setFollowedStories(followedItems);
       setWalletSummary(wallet);
+      setProfileSettings(nextProfileSettings);
+      setProfileForm(nextProfileSettings);
 
       const storyIds = Array.from(
         new Set(historyItems.map((item) => item.storyId).filter(isValidMongoId)),
@@ -551,6 +605,82 @@ export default function Profile() {
     }
   };
 
+  const handleProfileFormChange = (field) => (event) => {
+    const nextValue = event?.target?.value ?? '';
+    setProfileForm((prev) => ({
+      ...prev,
+      [field]: field === 'accentColor' ? normalizeHexColor(nextValue) : nextValue,
+    }));
+  };
+
+  const handleResetProfileAccent = () => {
+    setProfileForm((prev) => ({
+      ...prev,
+      accentColor: '',
+    }));
+  };
+
+  const handleAvatarSelected = async (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      setAvatarUploading(true);
+      const response = await uploadImage(file);
+      const nextAvatarUrl = String(response.data?.url || '').trim();
+      if (!nextAvatarUrl) {
+        throw new Error('Không nhận được URL avatar.');
+      }
+
+      setProfileForm((prev) => ({
+        ...prev,
+        avatar: nextAvatarUrl,
+      }));
+      toast.success('Đã tải avatar mới. Bấm Lưu profile để áp dụng.');
+    } catch (error) {
+      toastFromError(error, 'Không tải được avatar mới.');
+    } finally {
+      setAvatarUploading(false);
+      if (event?.target) {
+        event.target.value = '';
+      }
+    }
+  };
+
+  const handleClearAvatar = () => {
+    setProfileForm((prev) => ({
+      ...prev,
+      avatar: '',
+    }));
+  };
+
+  const handleSaveProfile = async () => {
+    try {
+      setProfileSaving(true);
+      const response = await updateMyProfileSettings({
+        avatar: profileForm.avatar,
+        headline: profileForm.headline,
+        bio: profileForm.bio,
+        accentColor: profileForm.accentColor,
+        readme: profileForm.readme,
+      });
+      const nextProfileSettings = normalizeProfileSettings(response.data?.settings);
+      setProfileSettings(nextProfileSettings);
+      setProfileForm(nextProfileSettings);
+      updateUser((currentUser) => ({
+        ...currentUser,
+        avatar: nextProfileSettings.avatar || null,
+      }));
+      toast.success('Đã lưu hồ sơ công khai.');
+    } catch (error) {
+      toastFromError(error, 'Không lưu được hồ sơ công khai.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   if (!user) {
     return null;
   }
@@ -562,6 +692,15 @@ export default function Profile() {
   const profileSkins = walletSummary?.profileSkins || [];
   const coinExchangeRate = Number(walletSummary?.coinExchangeRate || 10);
   const exchangePreviewCoins = Math.floor((Number(exchangeAmount) || 0) / coinExchangeRate);
+  const previewAccentColor =
+    normalizeHexColor(profileForm.accentColor) ||
+    normalizeHexColor(activeProfileSkin?.accent) ||
+    PROFILE_ACCENT_PRESETS[0];
+  const savedAccentColor = normalizeHexColor(profileSettings.accentColor);
+  const headlineLimit = Number(profileSettings.limits?.headline || DEFAULT_PROFILE_SETTINGS.limits.headline);
+  const bioLimit = Number(profileSettings.limits?.bio || DEFAULT_PROFILE_SETTINGS.limits.bio);
+  const readmeLimit = Number(profileSettings.limits?.readme || DEFAULT_PROFILE_SETTINGS.limits.readme);
+  const previewAvatar = profileForm.avatar || user.avatar || '';
   const profileHeaderStyle = activeProfileSkin
     ? {
         padding: '1.5rem',
@@ -585,9 +724,19 @@ export default function Profile() {
         <div className="profile-rank-main">
           <div className="profile-rank-copy">
             <h1 style={{ fontSize: '1.7rem', fontWeight: 800 }}>{user.username}</h1>
+            {profileSettings.headline && (
+              <p className="profile-custom-headline-inline" style={{ '--profile-custom-accent': savedAccentColor || previewAccentColor }}>
+                {profileSettings.headline}
+              </p>
+            )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem' }}>
               {user.email}
             </p>
+            {profileSettings.bio && (
+              <p className="profile-custom-bio-inline">
+                {profileSettings.bio}
+              </p>
+            )}
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
               {user.roles?.map((role) => (
                 <span key={role} className="category-tag">
@@ -633,6 +782,181 @@ export default function Profile() {
             <Link to={`/users/${user.id}`} className="btn btn-outline btn-sm">
               Xem profile công khai
             </Link>
+          </div>
+        </div>
+      </div>
+
+      <div className="card profile-custom-card">
+        <div className="profile-custom-grid">
+          <div
+            className="profile-custom-preview"
+            style={{ '--profile-custom-accent': previewAccentColor }}
+          >
+            <span className="profile-custom-kicker">Preview profile cong khai</span>
+            <div className="profile-avatar-editor">
+              <RankedAvatar
+                user={{ username: user.username, avatar: previewAvatar }}
+                skin={activeProfileSkin}
+                size="lg"
+                showRibbon
+              />
+              <div className="profile-avatar-editor-copy">
+                <strong>
+                  {profileForm.headline.trim() || 'Them mot dong gioi thieu ngan cho profile cua ban'}
+                </strong>
+                <p>
+                  {profileForm.bio.trim() || 'Viet vai dong de nguoi khac biet ban dang doc gi, thich the loai nao, hoac muon de lai dau an gi tren profile cong khai.'}
+                </p>
+                <div className="profile-custom-preview-meta">
+                  <span className="profile-custom-preview-dot" />
+                  <span>
+                    {profileForm.accentColor
+                      ? `Mau nhan ${profileForm.accentColor}`
+                      : `Dang dung mau theo skin ${activeProfileSkin?.name || 'mac dinh'}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <ProfileReadmeCard
+              ownerLabel={user.username}
+              content={profileForm.readme}
+              preview
+              placeholder="README cua profile se hien thi o day. Thu them # heading, - bullet, link va code de trang ca nhan giong GitHub hon."
+            />
+          </div>
+
+          <div className="profile-custom-editor">
+            <div className="public-profile-panel-head" style={{ marginBottom: '1rem' }}>
+              <div>
+                <h2>Tuy bien ho so cong khai</h2>
+                <p>
+                  Cap nhat avatar, dong gioi thieu, mo ta ngan, README.md va mau nhan de profile /users/{user.id} co dau an rieng.
+                </p>
+              </div>
+              <Link to={`/users/${user.id}`} className="btn btn-outline btn-sm">
+                Xem profile cong khai
+              </Link>
+            </div>
+
+            <div className="form-group">
+              <label>Avatar</label>
+              <div className="profile-avatar-actions">
+                <label className="btn btn-outline btn-sm">
+                  {avatarUploading ? 'Dang tai avatar...' : 'Tai avatar moi'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={handleAvatarSelected}
+                    disabled={avatarUploading}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={handleClearAvatar}
+                  disabled={avatarUploading}
+                >
+                  Xoa avatar
+                </button>
+                <span className="profile-custom-hint">
+                  Header se doi ngay sau khi ban luu profile.
+                </span>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Dong gioi thieu</label>
+              <input
+                className="form-control"
+                maxLength={headlineLimit}
+                placeholder="Vi du: Doc gia fantasy, me tu tien va light novel"
+                value={profileForm.headline}
+                onChange={handleProfileFormChange('headline')}
+              />
+              <div className="profile-custom-counter">
+                {profileForm.headline.length}/{headlineLimit}
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Mo ta ngan</label>
+              <textarea
+                className="form-control"
+                rows={4}
+                maxLength={bioLimit}
+                placeholder="Viet vai dong ve gu doc truyen, muc tieu streak, hoac dieu ban muon hien tren profile cong khai."
+                value={profileForm.bio}
+                onChange={handleProfileFormChange('bio')}
+              />
+              <div className="profile-custom-counter">
+                {profileForm.bio.length}/{bioLimit}
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Mau nhan</label>
+              <div className="profile-custom-accent-row">
+                <input
+                  className="profile-custom-color-input"
+                  type="color"
+                  value={previewAccentColor}
+                  onChange={handleProfileFormChange('accentColor')}
+                />
+                <div className="profile-custom-preset-row">
+                  {PROFILE_ACCENT_PRESETS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      className={`profile-custom-swatch ${previewAccentColor === color ? 'active' : ''}`}
+                      style={{ '--profile-custom-swatch': color }}
+                      onClick={() =>
+                        setProfileForm((prev) => ({
+                          ...prev,
+                          accentColor: color,
+                        }))
+                      }
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={handleResetProfileAccent}
+                >
+                  Dung mau skin
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>README.md</label>
+              <textarea
+                className="form-control profile-readme-textarea"
+                rows={12}
+                maxLength={readmeLimit}
+                placeholder={`# Hi there\n\n- Dang doc gi\n- Dang hoc gi\n- Muon nguoi khac biet gi ve ban\n\n> Ban co the dung heading, bullet list, link va code inline nhu markdown co ban.`}
+                value={profileForm.readme}
+                onChange={handleProfileFormChange('readme')}
+              />
+              <div className="profile-custom-counter">
+                {profileForm.readme.length}/{readmeLimit}
+              </div>
+            </div>
+
+            <div className="profile-custom-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSaveProfile}
+                disabled={profileSaving}
+              >
+                {profileSaving ? 'Dang luu...' : 'Luu profile'}
+              </button>
+              <span className="profile-custom-hint">
+                Khung rank van duoc lay tu skin dang trang bi. Avatar, intro va README co the tuy bien rieng.
+              </span>
+            </div>
           </div>
         </div>
       </div>
