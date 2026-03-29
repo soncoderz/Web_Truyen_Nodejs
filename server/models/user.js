@@ -50,6 +50,7 @@ const userSchema = new Schema(
     badges: { type: [String], default: [] },
     ownedProfileSkinIds: { type: [String], default: ["default"] },
     equippedProfileSkinId: { type: String, default: "default" },
+    checkInDateKey: { type: String, default: null },
     resetToken: { type: String, index: true, sparse: true },
     resetTokenExpiry: Date,
     createdAt: { type: Date, default: Date.now },
