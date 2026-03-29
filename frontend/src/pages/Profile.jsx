@@ -8,6 +8,7 @@ import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
 import {
   confirmMomoTopUp,
   createMomoTopUp,
+  dailyCheckIn,
   deleteReadingHistoryItem,
   equipProfileSkin,
   exchangeWalletToCoins,
@@ -285,6 +286,9 @@ export default function Profile() {
   const [profileForm, setProfileForm] = useState(DEFAULT_PROFILE_SETTINGS);
   const [profileSaving, setProfileSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+
+  const [checkInBusy, setCheckInBusy] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const {
     bookmarks,
@@ -589,6 +593,21 @@ export default function Profile() {
       toastFromError(error, 'Không mở khóa được skin này.');
     } finally {
       setSkinBusyId('');
+    }
+  };
+
+  const handleDailyCheckIn = async () => {
+    try {
+      setCheckInBusy(true);
+      const response = await dailyCheckIn();
+      const data = response.data || {};
+      mergeWalletSummary({ coinBalance: data.coinBalance });
+      toast.success(data.message || `Điểm danh thành công! +${data.reward || 20} xu.`);
+    } catch (error) {
+      const msg = error?.response?.data?.message || 'Không thể điểm danh. Hãy thử lại sau.';
+      toast.error(msg);
+    } finally {
+      setCheckInBusy(false);
     }
   };
 
@@ -1138,6 +1157,56 @@ export default function Profile() {
 
           {tab === 'rewards' && (
             <div style={{ display: 'grid', gap: '1rem' }}>
+              {/* === Daily Check-in Card === */}
+              <div
+                className="card"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '1.25rem',
+                  flexWrap: 'wrap',
+                  background: 'linear-gradient(135deg, rgba(250,204,21,0.12), rgba(139,92,246,0.1))',
+                  border: '1px solid rgba(250,204,21,0.3)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div
+                    style={{
+                      fontSize: '2.4rem',
+                      lineHeight: 1,
+                      filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.6))',
+                    }}
+                  >
+                    🎁
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: '0.2rem' }}>
+                      Điểm danh nhận quà
+                    </div>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: 0 }}>
+                      Điểm danh mỗi ngày để nhận{' '}
+                      <strong style={{ color: 'var(--warning)' }}>20 xu</strong> miễn phí!
+                    </p>
+                  </div>
+                </div>
+                <button
+                  id="btn-daily-checkin"
+                  className="btn btn-primary"
+                  onClick={handleDailyCheckIn}
+                  disabled={checkInBusy}
+                  style={{
+                    background: 'linear-gradient(135deg, #facc15, #f59e0b)',
+                    color: '#1a1a1a',
+                    fontWeight: 700,
+                    border: 'none',
+                    minWidth: '160px',
+                    boxShadow: '0 4px 16px rgba(250,204,21,0.35)',
+                  }}
+                >
+                  {checkInBusy ? 'Đang xử lý...' : '✨ Điểm danh hôm nay'}
+                </button>
+              </div>
               <div
                 className="card"
                 style={{

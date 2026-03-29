@@ -40,6 +40,8 @@ function createApp() {
   app.use("/api/admin", require("./routes/admin"));
   app.use("/api/upload", require("./routes/upload"));
   app.use("/api/email", require("./routes/email"));
+  app.use("/api/checkin", require("./routes/checkin"));
+  app.use("/api/leaderboard", require("./routes/leaderboard"));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

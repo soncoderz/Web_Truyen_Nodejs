@@ -210,12 +210,19 @@ export const getUnreadCount = () => api.get("/notifications/unread-count");
 export const markAsRead = (id) => api.put(`/notifications/${id}/read`);
 export const markAllAsRead = () => api.put("/notifications/read-all");
 
+
+// Daily Check-in
+export const dailyCheckIn = () => api.post("/checkin");
+
 // Reactions
 export const getReactionSummary = (targetType, targetId) =>
   api.get("/reactions/summary", { params: { targetType, targetId } });
 export const getReactionBatchSummary = (targets) =>
   api.post("/reactions/batch-summary", { targets });
 export const setReaction = (data) => api.put("/reactions", data);
+
+// Leaderboard
+export const getTopCoins = () => api.get("/leaderboard/top-coins");
 
 // Reports
 export const createReport = (data) => api.post("/reports", data);
