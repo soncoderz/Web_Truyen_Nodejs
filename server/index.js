@@ -1,6 +1,8 @@
+const http = require("http");
 const createApp = require("./app");
 const env = require("./config/env");
 const { connectDatabase } = require("./config/db/mongoose");
+const { initializeRealtime } = require("./services/realtime");
 const { ensureRoles } = require("./services/roleService");
 
 async function startServer() {
@@ -8,7 +10,10 @@ async function startServer() {
   await ensureRoles();
 
   const app = createApp();
-  app.listen(env.port, () => {
+  const server = http.createServer(app);
+  initializeRealtime(server);
+
+  server.listen(env.port, () => {
     console.log(`Node backend listening on port ${env.port}`);
   });
 }
