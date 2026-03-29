@@ -23,13 +23,22 @@ async function startServer() {
   const server = http.createServer(app);
   initializeRealtime(server);
 
+  server.on("error", (error) => {
+    console.error("Node backend failed to bind port.", error);
+    logError("Node backend failed to bind port.", error);
+    process.exit(1);
+  });
+
   server.listen(env.port, () => {
+    console.info(`Node backend listening on port ${env.port}.`);
+    console.info(`Backend log file: ${backendLogPath}`);
     logInfo(`Node backend listening on port ${env.port}.`);
     logInfo(`Backend log file: ${backendLogPath}`);
   });
 }
 
 startServer().catch((error) => {
+  console.error("Failed to start Node backend.", error);
   logError("Failed to start Node backend.", error);
   process.exit(1);
 });

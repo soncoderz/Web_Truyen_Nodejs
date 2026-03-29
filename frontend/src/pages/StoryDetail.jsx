@@ -950,7 +950,7 @@ export default function StoryDetail() {
       <div className="card" style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
         <div style={{ width: '200px', minWidth: '200px', height: '280px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 }}>
           {story.coverImage ? (
-            <img src={story.coverImage} alt={story.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <img src={story.coverImage} alt={repairMojibakeText(story.title || '')} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           ) : <div style={{ width: '100%', height: '100%', background: 'var(--bg-glass)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '4rem' }}>📖</div>}
         </div>
         <div style={{ flex: 1 }}>
@@ -962,11 +962,11 @@ export default function StoryDetail() {
             }}>{story.type === 'MANGA' ? '🎨 Truyện Tranh' : '📝 Light Novel'}</span>
             <span className={`status-badge status-${story.status}`}>{story.status === 'COMPLETED' ? 'Hoàn thành' : story.status === 'ONGOING' ? 'Đang ra' : 'Ngừng'}</span>
           </div>
-          <h1 style={{ marginBottom: '0.5rem' }}>{story.title}</h1>
-          {story.authors?.length > 0 && <p style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>✍️ {story.authors.map(a => a.name).join(', ')}</p>}
+          <h1 style={{ marginBottom: '0.5rem' }}>{repairMojibakeText(story.title || '')}</h1>
+          {story.authors?.length > 0 && <p style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>✍️ {story.authors.map(a => repairMojibakeText(a.name || '')).join(', ')}</p>}
           {story.categories?.length > 0 && (
             <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-              {story.categories.map(c => <span key={c.id} className="category-tag" style={{ fontSize: '0.75rem' }}>{c.name}</span>)}
+              {story.categories.map(c => <span key={c.id} className="category-tag" style={{ fontSize: '0.75rem' }}>{repairMojibakeText(c.name || '')}</span>)}
             </div>
           )}
           <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
@@ -975,7 +975,7 @@ export default function StoryDetail() {
             <span>⭐ {rating.averageRating} ({rating.totalRatings} đánh giá)</span>
             <span>❤️ {story.followers || 0} theo dõi</span>
           </div>
-          <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: '1rem' }}>{story.description}</p>
+          <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: '1rem' }}>{repairMojibakeText(story.description || '')}</p>
           {hasCommercePanel && (
             <div className="story-commerce-panel">
               <div className="story-commerce-head">
@@ -1333,7 +1333,7 @@ export default function StoryDetail() {
               </div>
               {continueChapter && (
                 <p style={{ margin: '0.45rem 0 0', color: 'var(--text-secondary)' }}>
-                  Đang đọc đến Chương {continueChapter.chapterNumber}: {continueChapter.title}
+                  Đang đọc đến Chương {continueChapter.chapterNumber}: {repairMojibakeText(continueChapter.title || '')}
                 </p>
               )}
               {readingNotePreview && (
