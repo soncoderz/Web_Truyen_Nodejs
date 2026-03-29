@@ -123,6 +123,13 @@ export default function Header() {
           >
             Danh sách truyện
           </Link>
+          <Link
+            to="/leaderboard"
+            className={`nav-link ${location.pathname === '/leaderboard' ? 'active' : ''}`}
+            onClick={() => setMobileOpen(false)}
+          >
+            🏆 Xếp hạng
+          </Link>
           {user && (
             <Link
               to="/studio"

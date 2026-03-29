@@ -197,6 +197,9 @@ export const markAllAsRead = () => api.put("/notifications/read-all");
 // Daily Check-in
 export const dailyCheckIn = () => api.post("/checkin");
 
+// Leaderboard
+export const getTopCoins = () => api.get("/leaderboard/top-coins");
+
 // Reports
 export const createReport = (data) => api.post("/reports", data);
 export const getReports = () => api.get("/reports");
