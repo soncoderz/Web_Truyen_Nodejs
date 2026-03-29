@@ -11,7 +11,7 @@ import {
   incrementViews, followStory, isFollowing, createComment, deleteComment, rateStory,
   createMomoTopUp, createReport, confirmMomoTopUp, getReadingHistoryByStory,
   getRelatedStories, getWalletSummary, rentStory, supportAuthor, unlockChapter,
-  unlockChapterBundle, unlockLicensedStory
+  unlockChapterBundle, unlockLicensedStory, getAiStoryRecommendations
 } from '../services/api';
 import { toast, toastFromError } from '../services/toast';
 import {
@@ -20,6 +20,7 @@ import {
   unsubscribeCommentTargets,
 } from '../services/realtime';
 import { calculateStoryCoinPrice } from '../utils/rewards';
+import { repairMojibakeText } from '../utils/textRepair';
 import { buildStoryReactionTarget } from '../utils/reactions';
 
 const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
@@ -36,6 +37,19 @@ function roundBundlePrice(value) {
     return 0;
   }
   return Math.max(1000, Math.round(amount / 1000) * 1000);
+}
+
+function truncatePreviewText(value, maxLength = 180) {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(maxLength - 3, 1)).trim()}...`;
 }
 
 function getActiveRentalEntry(entries, storyId) {
@@ -222,6 +236,11 @@ export default function StoryDetail() {
   const [visibleCount, setVisibleCount] = useState(5);
   const [selectedGifSize, setSelectedGifSize] = useState(null);
   const [showReport, setShowReport] = useState(false);
+  const [showAiSuggestionModal, setShowAiSuggestionModal] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [aiSuggestionLoading, setAiSuggestionLoading] = useState(false);
+  const [aiSuggestionError, setAiSuggestionError] = useState('');
+  const [aiSuggestionLoadedStoryId, setAiSuggestionLoadedStoryId] = useState(null);
   const [reportReason, setReportReason] = useState('');
   const [readingHistoryItem, setReadingHistoryItem] = useState(null);
   const [walletSummary, setWalletSummary] = useState(null);
@@ -243,6 +262,14 @@ export default function StoryDetail() {
 
   useEffect(() => {
     incrementViews(id).catch(() => {});
+  }, [id]);
+
+  useEffect(() => {
+    setShowAiSuggestionModal(false);
+    setAiSuggestions([]);
+    setAiSuggestionError('');
+    setAiSuggestionLoading(false);
+    setAiSuggestionLoadedStoryId(null);
   }, [id]);
 
   useEffect(() => {
@@ -553,6 +580,30 @@ export default function StoryDetail() {
     }
 
     navigate(`/story/${id}/chapter/${readingHistoryItem.chapterId}`);
+  };
+
+  const handleOpenAiSuggestions = async () => {
+    setShowAiSuggestionModal(true);
+
+    if (aiSuggestionLoadedStoryId === id && aiSuggestions.length > 0) {
+      return;
+    }
+
+    try {
+      setAiSuggestionLoading(true);
+      setAiSuggestionError('');
+      const response = await getAiStoryRecommendations(id, 6);
+      setAiSuggestions(Array.isArray(response.data) ? response.data : []);
+      setAiSuggestionLoadedStoryId(id);
+    } catch (error) {
+      setAiSuggestions([]);
+      setAiSuggestionError(
+        error?.response?.data?.message || 'Khong tai duoc danh sach goi y luc nay.',
+      );
+      toastFromError(error, 'Khong tai duoc goi y truyen luc nay.');
+    } finally {
+      setAiSuggestionLoading(false);
+    }
   };
 
   const handleOpenTopUp = () => {
@@ -1298,6 +1349,9 @@ export default function StoryDetail() {
                 {storyBookmark ? 'Mở bookmark' : 'Bookmark trong trình đọc'}
               </button>
             )}
+            <button className="btn btn-outline" onClick={handleOpenAiSuggestions}>
+              AI goi y
+            </button>
             <button className="btn btn-outline" onClick={() => setShowReport(true)} style={{ color: 'var(--warning)' }}>
               Báo lỗi
             </button>
@@ -1416,15 +1470,29 @@ export default function StoryDetail() {
             <ul className="chapter-list">
               {chapters.map(ch => (
                 <li key={ch.id} className="chapter-item" style={{ alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 320px', minWidth: 0 }}>
                   {ch.canRead ? (
                     <Link to={`/story/${id}/chapter/${ch.id}`} className="chapter-title" style={{ textDecoration: 'none', color: 'inherit' }}>
-                      Chương {ch.chapterNumber}: {ch.title}
+                      Chương {ch.chapterNumber}: {repairMojibakeText(ch.title || '')}
                     </Link>
                   ) : (
                     <span className="chapter-title" style={{ color: 'var(--text-secondary)', cursor: 'not-allowed' }}>
-                      Chương {ch.chapterNumber}: {ch.title}
+                      Chương {ch.chapterNumber}: {repairMojibakeText(ch.title || '')}
                     </span>
                   )}
+                    {String(ch.summary || '').trim() && (
+                      <p
+                        style={{
+                          margin: '0.4rem 0 0',
+                          color: 'var(--text-secondary)',
+                          fontSize: '0.88rem',
+                          lineHeight: 1.55,
+                        }}
+                      >
+                        {repairMojibakeText(ch.summary || '')}
+                      </p>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginLeft: 'auto' }}>
                     <span
                       className="status-badge"
@@ -1601,6 +1669,189 @@ export default function StoryDetail() {
               Xem thêm ({storyRootCommentCount - visibleCount})
             </button>
           )}
+        </div>
+      )}
+
+      {showAiSuggestionModal && (
+        <div className="modal-overlay" onClick={() => !aiSuggestionLoading && setShowAiSuggestionModal(false)}>
+          <div
+            className="modal"
+            onClick={e => e.stopPropagation()}
+            style={{ maxWidth: '980px', width: 'min(980px, calc(100vw - 2rem))', maxHeight: '88vh', overflowY: 'auto' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <h2 style={{ marginBottom: '0.35rem' }}>AI goi y truyen</h2>
+                <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  Goi y duoc tao tu ten truy?n, mo ta, the loai, tac gia, trang thai, so chuong, muc do theo doi va danh gia cua truyen hien tai.
+                </p>
+              </div>
+              <button className="btn btn-outline" onClick={() => setShowAiSuggestionModal(false)}>
+                Dong
+              </button>
+            </div>
+
+            {story && (
+              <div
+                style={{
+                  marginTop: '1rem',
+                  padding: '1rem',
+                  borderRadius: '14px',
+                  border: '1px solid var(--border)',
+                  background: 'linear-gradient(180deg, var(--bg-card), var(--bg-secondary))',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <strong style={{ color: 'var(--accent)' }}>{repairMojibakeText(story.title || '')}</strong>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    {Number(story.chapterCount || chapters.length || 0).toLocaleString('vi-VN')} chuong · {Number(story.followers || 0).toLocaleString('vi-VN')} theo doi · {Number(rating.averageRating || 0).toFixed(1)}/5 sao
+                  </span>
+                </div>
+                {story.authors?.length > 0 && (
+                  <p style={{ margin: '0.55rem 0 0', color: 'var(--text-secondary)' }}>
+                    Tac gia: {story.authors.map((author) => repairMojibakeText(author?.name || '')).filter(Boolean).join(', ')}
+                  </p>
+                )}
+                {story.categories?.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.7rem' }}>
+                    {story.categories.map((category) => (
+                      <span key={category.id} className="category-tag" style={{ fontSize: '0.76rem' }}>
+                        {repairMojibakeText(category?.name || '')}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {story.description && (
+                  <p style={{ margin: '0.75rem 0 0', color: 'var(--text-secondary)', lineHeight: 1.65 }}>
+                    {truncatePreviewText(repairMojibakeText(story.description), 220)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div style={{ marginTop: '1rem' }}>
+              {aiSuggestionLoading && (
+                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                  Dang phan tich metadata va tim truyen gan nhat...
+                </p>
+              )}
+
+              {!aiSuggestionLoading && aiSuggestionError && (
+                <p style={{ margin: 0, color: 'var(--warning)' }}>{aiSuggestionError}</p>
+              )}
+
+              {!aiSuggestionLoading && !aiSuggestionError && aiSuggestions.length === 0 && (
+                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                  Chua tim thay goi y phu hop cho truyen nay.
+                </p>
+              )}
+
+              {!aiSuggestionLoading && !aiSuggestionError && aiSuggestions.length > 0 && (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+                    gap: '0.9rem',
+                  }}
+                >
+                  {aiSuggestions.map((item) => {
+                    const candidate = item?.story || {};
+                    const reasons = Array.isArray(item?.reasons) ? item.reasons.slice(0, 3) : [];
+
+                    return (
+                      <Link
+                        key={candidate.id}
+                        to={`/story/${candidate.id}`}
+                        onClick={() => setShowAiSuggestionModal(false)}
+                        style={{
+                          textDecoration: 'none',
+                          color: 'inherit',
+                          borderRadius: '16px',
+                          border: '1px solid var(--border)',
+                          background: 'linear-gradient(180deg, var(--bg-card), var(--bg-secondary))',
+                          overflow: 'hidden',
+                          boxShadow: 'var(--shadow)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', gap: '0.85rem', padding: '0.9rem' }}>
+                          <div
+                            style={{
+                              width: '88px',
+                              minWidth: '88px',
+                              height: '124px',
+                              borderRadius: '12px',
+                              overflow: 'hidden',
+                              background: 'var(--bg-glass)',
+                            }}
+                          >
+                            {candidate.coverImage ? (
+                              <img
+                                src={candidate.coverImage}
+                                alt={candidate.title}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              />
+                            ) : (
+                              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                Truyen
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'flex-start' }}>
+                              <strong style={{ lineHeight: 1.4 }}>
+                                {repairMojibakeText(candidate.title || '')}
+                              </strong>
+                              <span
+                                style={{
+                                  flexShrink: 0,
+                                  padding: '0.2rem 0.55rem',
+                                  borderRadius: '999px',
+                                  background: 'var(--accent-soft-2)',
+                                  color: 'var(--accent)',
+                                  fontSize: '0.76rem',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {Number(item?.matchScore || 0)}%
+                              </span>
+                            </div>
+                            <p style={{ margin: '0.45rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                              {candidate.type === 'MANGA' ? 'Truyen tranh' : 'Light novel'} · {Number(candidate.chapterCount || 0).toLocaleString('vi-VN')} chuong · {Number(candidate.followers || 0).toLocaleString('vi-VN')} theo doi
+                            </p>
+                            <p style={{ margin: '0.6rem 0 0', color: 'var(--text-secondary)', lineHeight: 1.6, fontSize: '0.88rem' }}>
+                              {truncatePreviewText(
+                                repairMojibakeText(item?.explanation || candidate.description || ''),
+                                150,
+                              )}
+                            </p>
+                            {reasons.length > 0 && (
+                              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.7rem' }}>
+                                {reasons.map((reason) => (
+                                  <span
+                                    key={`${candidate.id}-${reason}`}
+                                    style={{
+                                      padding: '0.2rem 0.5rem',
+                                      borderRadius: '999px',
+                                      border: '1px solid var(--border)',
+                                      background: 'var(--bg-glass)',
+                                      color: 'var(--text-secondary)',
+                                      fontSize: '0.75rem',
+                                    }}
+                                  >
+                                    {repairMojibakeText(reason)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

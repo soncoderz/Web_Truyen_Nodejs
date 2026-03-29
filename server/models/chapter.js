@@ -5,6 +5,7 @@ const chapterSchema = new Schema(
     storyId: { type: String, required: true, index: true },
     chapterNumber: { type: Number, required: true },
     title: { type: String, required: true },
+    summary: { type: String, default: null },
     content: String,
     pages: { type: [String], default: [] },
     uploaderId: String,

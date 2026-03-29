@@ -16,6 +16,7 @@ import UserProfile from './pages/UserProfile';
 import Admin from './pages/Admin';
 import Statistics from './pages/Statistics';
 import CreatorStudio from './pages/CreatorStudio';
+import Leaderboard from './pages/Leaderboard';
 import ToastViewport from './components/ToastViewport';
 
 function App() {
@@ -40,6 +41,7 @@ function App() {
               <Route path="/studio" element={<CreatorStudio />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="/admin/statistics" element={<Statistics />} />
+              <Route path="/leaderboard" element={<Leaderboard />} />
             </Routes>
           </main>
           <Footer />
