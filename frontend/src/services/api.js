@@ -229,6 +229,8 @@ export const getTrendStats = () => api.get("/admin/stats/trends");
 export const getHotStories = (limit = 10) =>
   api.get("/stories/hot", { params: { limit } });
 export const getDistributionData = () => api.get("/admin/stats/distribution");
+export const getAdminComments = (params = {}) =>
+  api.get("/admin/comments", { params });
 
 // Upload (Cloudinary)
 export const uploadImage = (file) => {

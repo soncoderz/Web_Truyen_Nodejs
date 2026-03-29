@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
-import CommentIdentity from '../components/CommentIdentity';
+import CommentThread from '../components/CommentThread';
 import ReactionBar from '../components/ReactionBar';
 import { useAuth } from '../context/AuthContext';
 import useReactionSummaries from '../hooks/useReactionSummaries';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
 import {
   getStory, getChaptersByStory, getCommentsByStory, getStoryRating, getUserRating,
-  incrementViews, followStory, isFollowing, createComment, rateStory,
+  incrementViews, followStory, isFollowing, createComment, deleteComment, rateStory,
   createMomoTopUp, createReport, confirmMomoTopUp, getReadingHistoryByStory,
   getRelatedStories, getWalletSummary, rentStory, supportAuthor, unlockChapter,
   unlockChapterBundle, unlockLicensedStory
@@ -64,6 +64,88 @@ function removeComment(list, commentId) {
   return (Array.isArray(list) ? list : []).filter(
     (item) => String(item?.id || '') !== String(commentId || ''),
   );
+}
+
+function getVisibleThreadComments(list, visibleCount) {
+  const comments = Array.isArray(list) ? list : [];
+  if (!comments.length) {
+    return [];
+  }
+
+  const childrenByParentId = new Map();
+  const commentIds = new Set(comments.map((comment) => String(comment?.id || '')));
+
+  comments.forEach((comment) => {
+    const parentId = String(comment?.parentCommentId || '').trim();
+    if (!parentId || !commentIds.has(parentId)) {
+      return;
+    }
+
+    if (!childrenByParentId.has(parentId)) {
+      childrenByParentId.set(parentId, []);
+    }
+    childrenByParentId.get(parentId).push(String(comment.id));
+  });
+
+  const rootIds = comments
+    .filter((comment) => {
+      const parentId = String(comment?.parentCommentId || '').trim();
+      return !parentId || !commentIds.has(parentId);
+    })
+    .slice(0, visibleCount)
+    .map((comment) => String(comment.id));
+
+  const visibleIds = new Set();
+  const queue = [...rootIds];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    if (!currentId || visibleIds.has(currentId)) {
+      continue;
+    }
+
+    visibleIds.add(currentId);
+    queue.push(...(childrenByParentId.get(currentId) || []));
+  }
+
+  return comments.filter((comment) => visibleIds.has(String(comment?.id || '')));
+}
+
+function getRequiredVisibleRootCount(list, targetCommentId) {
+  const comments = Array.isArray(list) ? list : [];
+  const normalizedTargetCommentId = String(targetCommentId || '').trim();
+  if (!normalizedTargetCommentId || !comments.length) {
+    return 0;
+  }
+
+  const commentMap = new Map(
+    comments.map((comment) => [String(comment?.id || ''), comment]),
+  );
+  if (!commentMap.has(normalizedTargetCommentId)) {
+    return 0;
+  }
+
+  const rootIds = comments
+    .filter((comment) => {
+      const parentId = String(comment?.parentCommentId || '').trim();
+      return !parentId || !commentMap.has(parentId);
+    })
+    .map((comment) => String(comment.id));
+
+  let rootCommentId = normalizedTargetCommentId;
+  let guard = 0;
+
+  while (commentMap.has(rootCommentId) && guard < comments.length) {
+    const parentId = String(commentMap.get(rootCommentId)?.parentCommentId || '').trim();
+    if (!parentId || !commentMap.has(parentId)) {
+      break;
+    }
+    rootCommentId = parentId;
+    guard += 1;
+  }
+
+  const rootIndex = rootIds.indexOf(rootCommentId);
+  return rootIndex >= 0 ? rootIndex + 1 : 0;
 }
 
 function buildBundleOffers(story, chapters, purchasedChapterIds) {
@@ -129,6 +211,8 @@ export default function StoryDetail() {
   const [following, setFollowing] = useState(false);
   const [relatedStories, setRelatedStories] = useState([]);
   const [newComment, setNewComment] = useState('');
+  const [replyTarget, setReplyTarget] = useState(null);
+  const [highlightedCommentId, setHighlightedCommentId] = useState('');
   const [selectedGifUrl, setSelectedGifUrl] = useState(null);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [gifSearch, setGifSearch] = useState('');
@@ -149,6 +233,9 @@ export default function StoryDetail() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [tab, setTab] = useState('chapters');
+  const commentInputRef = useRef(null);
+  const focusedCommentIdRef = useRef('');
+  const targetCommentId = String(searchParams.get('comment') || '').trim();
 
   useEffect(() => {
     loadStory();
@@ -157,6 +244,94 @@ export default function StoryDetail() {
   useEffect(() => {
     incrementViews(id).catch(() => {});
   }, [id]);
+
+  useEffect(() => {
+    const nextTab = searchParams.get('tab');
+    if (nextTab === 'comments') {
+      setTab('comments');
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!replyTarget?.id) {
+      return;
+    }
+
+    if (!comments.some((comment) => String(comment?.id || '') === String(replyTarget.id))) {
+      setReplyTarget(null);
+    }
+  }, [comments, replyTarget]);
+
+  useEffect(() => {
+    if (!targetCommentId) {
+      focusedCommentIdRef.current = '';
+      setHighlightedCommentId('');
+      return undefined;
+    }
+
+    if (!comments.some((comment) => String(comment?.id || '') === targetCommentId)) {
+      focusedCommentIdRef.current = '';
+      return undefined;
+    }
+
+    if (focusedCommentIdRef.current === targetCommentId) {
+      return undefined;
+    }
+
+    if (tab !== 'comments') {
+      setTab('comments');
+      return undefined;
+    }
+
+    const requiredVisibleCount = getRequiredVisibleRootCount(comments, targetCommentId);
+    if (requiredVisibleCount > visibleCount) {
+      setVisibleCount(requiredVisibleCount);
+      return undefined;
+    }
+
+    let highlightTimerId = null;
+    let retryTimerId = null;
+
+    const focusTargetComment = () => {
+      const targetNode = document.getElementById(`story-comment-${targetCommentId}`);
+      if (!targetNode) {
+        return false;
+      }
+
+      targetNode.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+      focusedCommentIdRef.current = targetCommentId;
+      setHighlightedCommentId(targetCommentId);
+      highlightTimerId = window.setTimeout(() => {
+        setHighlightedCommentId((currentValue) =>
+          currentValue === targetCommentId ? '' : currentValue,
+        );
+      }, 2600);
+      return true;
+    };
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      if (focusTargetComment()) {
+        return;
+      }
+
+      retryTimerId = window.setTimeout(() => {
+        focusTargetComment();
+      }, 260);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      if (retryTimerId) {
+        window.clearTimeout(retryTimerId);
+      }
+      if (highlightTimerId) {
+        window.clearTimeout(highlightTimerId);
+      }
+    };
+  }, [comments, targetCommentId, tab, visibleCount]);
 
   useEffect(() => {
     const orderId = searchParams.get('orderId');
@@ -581,6 +756,7 @@ export default function StoryDetail() {
     try {
       const response = await createComment({
         storyId: id,
+        parentCommentId: replyTarget?.id || null,
         content: newComment,
         gifUrl: selectedGifUrl || null,
         gifSize: selectedGifSize || null,
@@ -595,6 +771,7 @@ export default function StoryDetail() {
       return;
     }
     setNewComment('');
+    setReplyTarget(null);
     setSelectedGifUrl(null);
     setSelectedGifSize(null);
     setShowGifPicker(false);
@@ -603,6 +780,45 @@ export default function StoryDetail() {
     }
     setVisibleCount(5);
     toast.success('Đã gửi bình luận.');
+  };
+
+  const handleReplyComment = (comment) => {
+    if (!comment?.id) {
+      return;
+    }
+
+    setTab('comments');
+    setReplyTarget(comment);
+    setNewComment((currentValue) => {
+      if (String(currentValue || '').trim()) {
+        return currentValue;
+      }
+
+      return comment?.username ? `@${comment.username} ` : '';
+    });
+    window.requestAnimationFrame(() => {
+      commentInputRef.current?.focus();
+    });
+  };
+
+  const handleDeleteComment = async (comment) => {
+    if (!comment?.id) {
+      return;
+    }
+
+    if (!window.confirm('Xóa bình luận này?')) {
+      return;
+    }
+
+    try {
+      await deleteComment(comment.id);
+      if (String(replyTarget?.id || '') === String(comment.id)) {
+        setReplyTarget(null);
+      }
+      toast.success('Đã xóa bình luận.');
+    } catch (error) {
+      toastFromError(error, 'Không xóa được bình luận.');
+    }
   };
 
   const handleReport = async () => {
@@ -681,6 +897,15 @@ export default function StoryDetail() {
   const hasCommercePanel =
     isLicensedStory || rentalEnabled || supportEnabled;
   const canOpenReader = chapters.length > 0 && isStoryUnlocked;
+  const storyRootCommentCount = comments.filter((comment) => {
+    const parentId = String(comment?.parentCommentId || '').trim();
+    if (!parentId) {
+      return true;
+    }
+
+    return !comments.some((item) => String(item?.id || '') === parentId);
+  }).length;
+  const visibleComments = getVisibleThreadComments(comments, visibleCount);
   const storyReactionSummary = storyReactionTarget
     ? getSummary(storyReactionTarget)
     : null;
@@ -1261,9 +1486,35 @@ export default function StoryDetail() {
       {/* Comments */}
       {tab === 'comments' && (
         <div className="card">
+          {replyTarget && (
+            <div className="comment-reply-banner">
+              <div>
+                <strong>{`Đang trả lời @${replyTarget.username || 'người dùng'}`}</strong>
+                {replyTarget.content && <span>{replyTarget.content}</span>}
+              </div>
+              <button
+                type="button"
+                className="comment-reply-cancel"
+                onClick={() => setReplyTarget(null)}
+              >
+                Hủy
+              </button>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-            <input className="form-control" style={{ flex: 1 }} placeholder="Viết bình luận... (có thể bình luận nhiều lần)" value={newComment} onChange={e => setNewComment(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleComment()} />
+            <input
+              ref={commentInputRef}
+              className="form-control"
+              style={{ flex: 1 }}
+              placeholder={
+                replyTarget
+                  ? `Trả lời @${replyTarget.username || 'người dùng'}...`
+                  : 'Viết bình luận... (có thể bình luận nhiều lần)'
+              }
+              value={newComment}
+              onChange={e => setNewComment(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleComment()}
+            />
             <button className="btn btn-outline" onClick={() => {
               setShowGifPicker(v => !v);
               if (!showGifPicker) { setGifResults([]); setGifSearch(''); loadTrendingGifs(); }
@@ -1331,70 +1582,23 @@ export default function StoryDetail() {
               </div>
             </div>
           )}
-          {comments.length > 0 ? comments.slice(0, visibleCount).map(c => (
-            <div key={c.id} style={{ padding: '0.75rem', borderBottom: '1px solid var(--border)', marginBottom: '0.5rem' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: '0.75rem',
-                  marginBottom: '0.45rem',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <CommentIdentity comment={c} />
-                  {c.chapterNumber && (
-                    <span style={{
-                      background: 'var(--bg-card)',
-                      color: 'var(--accent)',
-                      borderRadius: '999px',
-                      padding: '0.1rem 0.55rem',
-                      fontSize: '0.72rem',
-                      border: '1px solid var(--border)'
-                    }}>
-                      Chương {c.chapterNumber}
-                    </span>
-                  )}
-                </div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                  {new Date(c.createdAt).toLocaleString('vi-VN')}
-                </span>
-              </div>
-              <p style={{ margin: 0 }}>{c.content}</p>
-              {c.gifUrl && (!c.gifSize || c.gifSize <= 2 * 1024 * 1024) && (
-                <img
-                  src={c.gifUrl}
-                  alt="gif"
-                  loading="lazy"
-                  style={{
-                    marginTop: '0.35rem',
-                    width: '180px',
-                    height: '120px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border)',
-                    objectFit: 'cover'
-                  }}
-                  onError={(e) => {
-                    if (c.gifUrl && e.target.src !== c.gifUrl) e.target.src = c.gifUrl;
-                  }}
-                />
-              )}
-              {c.gifUrl && c.gifSize && c.gifSize > 2 * 1024 * 1024 && (
-                <p style={{ marginTop: '0.3rem', fontSize: '0.8rem', color: 'var(--warning)' }}>
-                  GIF &gt; 2MB không hiển thị.
-                </p>
-              )}
-            </div>
-          )) : <p>Chưa có bình luận. Hãy là người đầu tiên!</p>}
-          {comments.length > visibleCount && (
+          <CommentThread
+            comments={visibleComments}
+            currentUser={user}
+            showChapterBadge
+            highlightCommentId={highlightedCommentId}
+            commentDomIdPrefix="story-comment"
+            onReply={handleReplyComment}
+            onDelete={handleDeleteComment}
+            emptyText="Chưa có bình luận. Hãy là người đầu tiên!"
+          />
+          {storyRootCommentCount > visibleCount && (
             <button
               className="btn btn-outline"
               style={{ width: '100%', marginTop: '0.5rem' }}
-              onClick={() => setVisibleCount((v) => Math.min(comments.length, v + 5))}
+              onClick={() => setVisibleCount((v) => Math.min(storyRootCommentCount, v + 5))}
             >
-              Xem thêm ({comments.length - visibleCount})
+              Xem thêm ({storyRootCommentCount - visibleCount})
             </button>
           )}
         </div>
