@@ -1,3 +1,9 @@
+const {
+  buildUserEntitlements,
+  hasStoryFullAccess,
+  resolveChapterAccess,
+} = require("../services/monetizationService");
+
 function isApprovedStatus(status) {
   return status === undefined || status === null || status === "APPROVED";
 }
@@ -22,22 +28,33 @@ function canManageStory(story, user) {
   return isAdmin(user) || isOwner(story, user);
 }
 
-function canAccessLicensedStory(story, user, purchasedStoryIds = []) {
+function normalizeEntitlementsInput(input) {
+  if (input && typeof input === "object" && input.purchasedStoryIds instanceof Set) {
+    return input;
+  }
+
+  return buildUserEntitlements({
+    purchasedStoryIds: Array.isArray(input) ? input : [],
+  });
+}
+
+function canAccessLicensedStory(story, user, entitlementsInput = []) {
   if (!story?.licensed || Number(story?.unlockPrice || 0) <= 0) {
     return true;
   }
 
-  return (
-    isAdmin(user) ||
-    isOwner(story, user) ||
-    purchasedStoryIds.includes(String(story.id || story._id))
-  );
+  return hasStoryFullAccess(story, user, normalizeEntitlementsInput(entitlementsInput));
 }
 
-function canViewChapter(chapter, story, user, purchasedStoryIds = []) {
+function canViewChapter(chapter, story, user, entitlementsInput = []) {
   return (
     canViewStory(story, user) &&
-    canAccessLicensedStory(story, user, purchasedStoryIds) &&
+    resolveChapterAccess(
+      chapter,
+      story,
+      user,
+      normalizeEntitlementsInput(entitlementsInput),
+    ).canRead &&
     (isApprovedStatus(chapter?.approvalStatus) || canManageStory(story, user))
   );
 }

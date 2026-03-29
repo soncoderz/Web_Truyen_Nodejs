@@ -11,6 +11,14 @@ const missionProgressSchema = new Schema(
   { _id: false },
 );
 
+const rentedStoryAccessSchema = new Schema(
+  {
+    storyId: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+  },
+  { _id: false },
+);
+
 const userSchema = new Schema(
   {
     username: { type: String, required: true, maxlength: 20, unique: true },
@@ -24,6 +32,8 @@ const userSchema = new Schema(
     walletBalance: { type: Number, default: 0 },
     coinBalance: { type: Number, default: 0 },
     purchasedStoryIds: { type: [String], default: [] },
+    purchasedChapterIds: { type: [String], default: [] },
+    rentedStoryAccesses: { type: [rentedStoryAccessSchema], default: [] },
     readingStreak: { type: Number, default: 0 },
     longestReadingStreak: { type: Number, default: 0 },
     lastMissionCompletedDateKey: { type: String, default: null },

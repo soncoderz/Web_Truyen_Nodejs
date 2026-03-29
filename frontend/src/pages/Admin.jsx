@@ -60,6 +60,12 @@ const EMPTY_STORY_FORM = {
   relatedStoryIds: [],
   licensed: false,
   unlockPrice: 0,
+  rentalEnabled: false,
+  rentalPrice: 0,
+  chapterBundleEnabled: false,
+  chapterBundleSize: 3,
+  chapterBundleDiscountPercent: 15,
+  supportEnabled: false,
 };
 
 export default function Admin() {
@@ -95,7 +101,15 @@ export default function Admin() {
 
   // Chapter
   const [showChapterForm, setShowChapterForm] = useState(false);
-  const [chapterForm, setChapterForm] = useState({ storyId: '', chapterNumber: 1, title: '', content: '', pages: [] });
+  const [chapterForm, setChapterForm] = useState({
+    storyId: '',
+    chapterNumber: 1,
+    title: '',
+    content: '',
+    pages: [],
+    accessMode: 'FREE',
+    accessPrice: 0,
+  });
   const [editChapterId, setEditChapterId] = useState(null);
   const [selectedStoryChapters, setSelectedStoryChapters] = useState([]);
   const [selectedStoryId, setSelectedStoryId] = useState('');
@@ -134,8 +148,9 @@ export default function Admin() {
     } catch (e) {
       console.error(e);
       notifyApiError(e, 'Không tải được dữ liệu quản trị.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // ===== COVER IMAGE UPLOAD =====
@@ -179,10 +194,21 @@ export default function Admin() {
   const handleSaveStory = async () => {
     const payload = {
       ...storyForm,
+      chapterBundleEnabled: false,
+      chapterBundleSize: 3,
+      chapterBundleDiscountPercent: 15,
       unlockPrice: storyForm.licensed
         ? Math.max(Number(storyForm.unlockPrice) || 0, 1000)
         : 0,
+      rentalPrice: storyForm.rentalEnabled
+        ? Math.max(Number(storyForm.rentalPrice) || 0, 1000)
+        : 0,
     };
+
+    if (payload.rentalEnabled && payload.rentalPrice < 1000) {
+      alert('Gia thue toi thieu la 1.000 VND.');
+      return;
+    }
 
     if (payload.licensed && payload.unlockPrice < 1000) {
       alert('Giá mở khóa tối thiểu là 1.000 VND.');
@@ -208,6 +234,12 @@ export default function Admin() {
       relatedStoryIds: s.relatedStoryIds || [],
       licensed: Boolean(s.licensed),
       unlockPrice: s.unlockPrice || 0,
+      rentalEnabled: Boolean(s.rentalEnabled),
+      rentalPrice: s.rentalPrice || 0,
+      chapterBundleEnabled: Boolean(s.chapterBundleEnabled),
+      chapterBundleSize: s.chapterBundleSize || 3,
+      chapterBundleDiscountPercent: s.chapterBundleDiscountPercent ?? 15,
+      supportEnabled: Boolean(s.supportEnabled),
     });
     setCoverPreview(s.coverImage || '');
     setEditStoryId(s.id); setShowStoryForm(true);
@@ -279,7 +311,17 @@ export default function Admin() {
 
   const handleSaveChapter = async () => {
     try {
-      const formData = { ...chapterForm };
+      const formData = {
+        ...chapterForm,
+        accessPrice:
+          chapterForm.accessMode === 'FREE'
+            ? 0
+            : Math.max(Number(chapterForm.accessPrice) || 0, 1000),
+      };
+      if (formData.accessMode !== 'FREE' && formData.accessPrice < 1000) {
+        alert('Gia chuong toi thieu la 1.000 VND.');
+        return;
+      }
       if (getSelectedStoryType() === 'MANGA') {
         formData.content = null;
       } else {
@@ -288,7 +330,15 @@ export default function Admin() {
       if (editChapterId) await updateChapter(editChapterId, formData);
       else await createChapter(formData);
       setShowChapterForm(false); setEditChapterId(null);
-      setChapterForm({ storyId: '', chapterNumber: 1, title: '', content: '', pages: [] });
+      setChapterForm({
+        storyId: '',
+        chapterNumber: 1,
+        title: '',
+        content: '',
+        pages: [],
+        accessMode: 'FREE',
+        accessPrice: 0,
+      });
       setMangaFiles([]); setMangaPreviews([]); setUploadProgress('');
       if (selectedStoryId) handleLoadChapters(selectedStoryId);
       loadData();
@@ -523,6 +573,16 @@ export default function Admin() {
                       Tính phí · {(s.unlockPrice || 0).toLocaleString('vi-VN')} VND
                     </span>
                   )}
+                  {s.rentalEnabled && (
+                    <span className="status-badge" style={{ background: 'var(--accent-soft-2)', color: 'var(--accent)' }}>
+                      Thue 7 ngay Â· {(s.rentalPrice || 0).toLocaleString('vi-VN')} VND
+                    </span>
+                  )}
+                  {s.supportEnabled && (
+                    <span className="status-badge" style={{ background: 'var(--bg-glass)', color: 'var(--text-primary)' }}>
+                      Mo ung ho
+                    </span>
+                  )}
                 </div></td>
                 <td>👁 {s.views || 0}</td>
                 <td>⭐ {s.averageRating || 0}</td>
@@ -582,7 +642,15 @@ export default function Admin() {
               <button className="btn btn-primary" onClick={() => {
                 setShowChapterForm(true); setEditChapterId(null);
                 setMangaFiles([]); setMangaPreviews([]); setUploadProgress('');
-                setChapterForm({ storyId: selectedStoryId, chapterNumber: selectedStoryChapters.length + 1, title: '', content: '', pages: [] });
+                setChapterForm({
+                  storyId: selectedStoryId,
+                  chapterNumber: selectedStoryChapters.length + 1,
+                  title: '',
+                  content: '',
+                  pages: [],
+                  accessMode: 'FREE',
+                  accessPrice: 0,
+                });
               }}>+ Thêm chương</button>
             )}
           </div>
@@ -592,9 +660,40 @@ export default function Admin() {
                 <ul className="chapter-list">{selectedStoryChapters.map(ch => (
                   <li key={ch.id} className="chapter-item">
                     <span className="chapter-title">Ch.{ch.chapterNumber}: {ch.title} {ch.pages?.length > 0 ? `(${ch.pages.length} trang ảnh)` : ''}</span>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span
+                        className="status-badge"
+                        style={{
+                          background:
+                            ch.accessMode === 'EARLY_ACCESS'
+                              ? 'var(--warning-bg)'
+                              : ch.accessMode === 'PURCHASE'
+                                ? 'var(--accent-soft-2)'
+                                : 'var(--bg-glass)',
+                          color:
+                            ch.accessMode === 'EARLY_ACCESS'
+                              ? 'var(--warning)'
+                              : ch.accessMode === 'PURCHASE'
+                                ? 'var(--accent)'
+                                : 'var(--text-secondary)',
+                        }}
+                      >
+                        {ch.accessMode === 'EARLY_ACCESS'
+                          ? `Early access · ${(ch.accessPrice || 0).toLocaleString('vi-VN')} VND`
+                          : ch.accessMode === 'PURCHASE'
+                            ? `Mua rieng · ${(ch.accessPrice || 0).toLocaleString('vi-VN')} VND`
+                            : 'FREE'}
+                      </span>
                       <button className="btn btn-sm btn-outline" onClick={() => {
-                        setChapterForm({ storyId: ch.storyId, chapterNumber: ch.chapterNumber, title: ch.title, content: ch.content || '', pages: ch.pages || [] });
+                        setChapterForm({
+                          storyId: ch.storyId,
+                          chapterNumber: ch.chapterNumber,
+                          title: ch.title,
+                          content: ch.content || '',
+                          pages: ch.pages || [],
+                          accessMode: ch.accessMode || 'FREE',
+                          accessPrice: ch.accessPrice || 0,
+                        });
                         setMangaFiles([]); setMangaPreviews([]); setUploadProgress('');
                         setEditChapterId(ch.id); setShowChapterForm(true);
                       }}>Sửa</button>
@@ -631,7 +730,7 @@ export default function Admin() {
       {/* ===== STORY FORM MODAL ===== */}
       {showStoryForm && (
         <div className="modal-overlay" onClick={() => setShowStoryForm(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="modal admin-story-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '780px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2>{editStoryId ? 'Sửa truyện' : 'Thêm truyện mới'}</h2>
             <div className="form-group"><label>Loại truyện *</label>
               <select className="form-control" value={storyForm.type} onChange={e => setStoryForm({ ...storyForm, type: e.target.value })}>
@@ -739,6 +838,45 @@ export default function Admin() {
                   <option key={s.id} value={s.id}>{s.type === 'MANGA' ? '🎨' : '📝'} {s.title}</option>
                 ))}
               </select></div>
+            <div className="form-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(storyForm.rentalEnabled)}
+                  onChange={e => setStoryForm(prev => ({
+                    ...prev,
+                    rentalEnabled: e.target.checked,
+                    rentalPrice: e.target.checked
+                      ? Math.max(Number(prev.rentalPrice) || 0, 1000)
+                      : 0,
+                  }))}
+                />
+                Thue truyện 7 ngay
+              </label>
+              {storyForm.rentalEnabled && (
+                <div>
+                  <label>Gia thue 7 ngay (VND)</label>
+                  <input
+                    className="form-control"
+                    type="number"
+                    min="1000"
+                    step="1000"
+                    value={storyForm.rentalPrice}
+                    onChange={e => setStoryForm({ ...storyForm, rentalPrice: Number(e.target.value) || 0 })}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="form-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(storyForm.supportEnabled)}
+                  onChange={e => setStoryForm({ ...storyForm, supportEnabled: e.target.checked })}
+                />
+                Mo ung ho tac gia
+              </label>
+            </div>
             <div className="modal-actions">
               <button className="btn btn-outline" onClick={() => setShowStoryForm(false)}>Hủy</button>
               <button className="btn btn-primary" onClick={handleSaveStory} disabled={coverUploading}>Lưu</button>
@@ -794,6 +932,41 @@ export default function Admin() {
             <div className="form-group"><label>Tiêu đề *</label>
               <input className="form-control" value={chapterForm.title} onChange={e => setChapterForm({ ...chapterForm, title: e.target.value })} /></div>
 
+            <div className="form-group">
+              <label>Che do mo khoa</label>
+              <div style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                <div>
+                  <select
+                    className="form-control"
+                    value={chapterForm.accessMode}
+                    onChange={e => setChapterForm(prev => ({
+                      ...prev,
+                      accessMode: e.target.value,
+                      accessPrice: e.target.value === 'FREE'
+                        ? 0
+                        : Math.max(Number(prev.accessPrice) || 0, 1000),
+                    }))}
+                  >
+                    <option value="FREE">FREE</option>
+                    <option value="PURCHASE">Mua rieng chuong</option>
+                    <option value="EARLY_ACCESS">Early access</option>
+                  </select>
+                </div>
+                {chapterForm.accessMode !== 'FREE' && (
+                  <div>
+                    <input
+                      className="form-control"
+                      type="number"
+                      min="1000"
+                      step="1000"
+                      value={chapterForm.accessPrice}
+                      onChange={e => setChapterForm({ ...chapterForm, accessPrice: Number(e.target.value) || 0 })}
+                      placeholder="Gia mo khoa (VND)"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
             {getSelectedStoryType() === 'MANGA' ? (
               /* MANGA: Image Pages Upload */
               <div className="form-group">

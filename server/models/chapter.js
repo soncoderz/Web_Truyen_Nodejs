@@ -9,6 +9,12 @@ const chapterSchema = new Schema(
     pages: { type: [String], default: [] },
     uploaderId: String,
     uploaderUsername: String,
+    accessMode: {
+      type: String,
+      enum: ["FREE", "PURCHASE", "EARLY_ACCESS"],
+      default: "FREE",
+    },
+    accessPrice: { type: Number, default: 0 },
     approvalStatus: {
       type: String,
       enum: ["PENDING", "APPROVED", "REJECTED"],
