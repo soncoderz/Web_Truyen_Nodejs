@@ -38,6 +38,53 @@ import {
 
 const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
 const READER_TTS_SETTINGS_KEY = 'reader-tts-settings';
+const TTS_LANGUAGE_MODES = {
+  auto: 'AUTO',
+  vietnamese: 'VI',
+  english: 'EN',
+};
+const VIETNAMESE_TTS_CHAR_PATTERN =
+  /[ăâđêôơưĂÂĐÊÔƠƯáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/g;
+const ENGLISH_TTS_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'but',
+  'by',
+  'for',
+  'from',
+  'has',
+  'he',
+  'her',
+  'his',
+  'if',
+  'in',
+  'into',
+  'is',
+  'it',
+  'its',
+  'of',
+  'on',
+  'or',
+  'she',
+  'that',
+  'the',
+  'their',
+  'there',
+  'they',
+  'this',
+  'to',
+  'was',
+  'we',
+  'were',
+  'with',
+  'you',
+  'your',
+]);
 
 function splitChapterContentIntoParagraphs(content) {
   if (!content) {
@@ -75,7 +122,9 @@ function buildParagraphSnippet(paragraph) {
 function getStoredTtsSettings() {
   if (typeof window === 'undefined') {
     return {
-      voiceURI: '',
+      languageMode: TTS_LANGUAGE_MODES.auto,
+      vietnameseVoiceURI: '',
+      englishVoiceURI: '',
       rate: 0.95,
       pitch: 1,
     };
@@ -85,21 +134,37 @@ function getStoredTtsSettings() {
     const raw = window.localStorage.getItem(READER_TTS_SETTINGS_KEY);
     if (!raw) {
       return {
-        voiceURI: '',
+        languageMode: TTS_LANGUAGE_MODES.auto,
+        vietnameseVoiceURI: '',
+        englishVoiceURI: '',
         rate: 0.95,
         pitch: 1,
       };
     }
 
     const parsed = JSON.parse(raw);
+    const legacyVoiceURI = typeof parsed?.voiceURI === 'string' ? parsed.voiceURI : '';
+    const nextLanguageMode = String(parsed?.languageMode || TTS_LANGUAGE_MODES.auto).toUpperCase();
     return {
-      voiceURI: typeof parsed?.voiceURI === 'string' ? parsed.voiceURI : '',
+      languageMode: Object.values(TTS_LANGUAGE_MODES).includes(nextLanguageMode)
+        ? nextLanguageMode
+        : TTS_LANGUAGE_MODES.auto,
+      vietnameseVoiceURI:
+        typeof parsed?.vietnameseVoiceURI === 'string'
+          ? parsed.vietnameseVoiceURI
+          : legacyVoiceURI,
+      englishVoiceURI:
+        typeof parsed?.englishVoiceURI === 'string'
+          ? parsed.englishVoiceURI
+          : '',
       rate: Number.isFinite(Number(parsed?.rate)) ? Number(parsed.rate) : 0.95,
       pitch: Number.isFinite(Number(parsed?.pitch)) ? Number(parsed.pitch) : 1,
     };
   } catch {
     return {
-      voiceURI: '',
+      languageMode: TTS_LANGUAGE_MODES.auto,
+      vietnameseVoiceURI: '',
+      englishVoiceURI: '',
       rate: 0.95,
       pitch: 1,
     };
@@ -172,15 +237,75 @@ function splitSpeechTextIntoChunks(text, maxLength = 360) {
   return chunks.length ? chunks : [normalized];
 }
 
-function buildSpeechQueue(paragraphs, startParagraphIndex = 0) {
+function getVietnameseCharCount(value) {
+  return (String(value || '').match(VIETNAMESE_TTS_CHAR_PATTERN) || []).length;
+}
+
+function getEnglishSignalScore(value) {
+  const normalizedValue = String(value || '');
+  const englishWords = normalizedValue.toLowerCase().match(/\b[a-z]{2,}\b/g) || [];
+  if (!englishWords.length) {
+    return 0;
+  }
+
+  const stopWordCount = englishWords.filter((word) => ENGLISH_TTS_STOP_WORDS.has(word)).length;
+  const alphaCount = (normalizedValue.match(/[A-Za-z]/g) || []).length;
+  const nonSpaceCount = normalizedValue.replace(/\s+/g, '').length || 1;
+  const asciiRatio = alphaCount / nonSpaceCount;
+
+  return (
+    stopWordCount * 3 +
+    englishWords.length +
+    (asciiRatio >= 0.6 ? 2 : 0) +
+    (asciiRatio >= 0.8 ? 1 : 0)
+  );
+}
+
+function detectSpeechLanguage(text, languageMode = TTS_LANGUAGE_MODES.auto) {
+  if (languageMode === TTS_LANGUAGE_MODES.vietnamese) {
+    return 'vi-VN';
+  }
+
+  if (languageMode === TTS_LANGUAGE_MODES.english) {
+    return 'en-US';
+  }
+
+  const normalized = String(text || '').trim();
+  if (!normalized) {
+    return 'vi-VN';
+  }
+
+  if (getVietnameseCharCount(normalized) > 0) {
+    return 'vi-VN';
+  }
+
+  const englishWords = normalized.toLowerCase().match(/\b[a-z]{2,}\b/g) || [];
+  const stopWordCount = englishWords.filter((word) => ENGLISH_TTS_STOP_WORDS.has(word)).length;
+  const asciiLetterCount = (normalized.match(/[A-Za-z]/g) || []).length;
+  const asciiRatio = asciiLetterCount / (normalized.replace(/\s+/g, '').length || 1);
+
+  if (
+    (stopWordCount >= 1 && englishWords.length >= 2 && asciiRatio >= 0.55) ||
+    (englishWords.length >= 3 && asciiRatio >= 0.72) ||
+    getEnglishSignalScore(normalized) >= 6
+  ) {
+    return 'en-US';
+  }
+
+  return 'vi-VN';
+}
+
+function buildSpeechQueue(paragraphs, startParagraphIndex = 0, languageMode = TTS_LANGUAGE_MODES.auto) {
   return (Array.isArray(paragraphs) ? paragraphs : [])
     .slice(startParagraphIndex)
-    .flatMap((paragraph, offset) => (
-      splitSpeechTextIntoChunks(prepareTextForSpeech(paragraph)).map((chunk) => ({
+    .flatMap((paragraph, offset) => {
+      const preparedParagraph = prepareTextForSpeech(paragraph);
+      return splitSpeechTextIntoChunks(preparedParagraph).map((chunk) => ({
         paragraphIndex: startParagraphIndex + offset,
         text: chunk,
-      }))
-    ));
+        language: detectSpeechLanguage(chunk, languageMode),
+      }));
+    });
 }
 
 function isVietnameseVoice(voice) {
@@ -189,39 +314,62 @@ function isVietnameseVoice(voice) {
   return /^vi[-_]/i.test(voiceLang) || /vietnam/i.test(voiceName);
 }
 
-function compareVoicePriority(leftVoice, rightVoice) {
+function isEnglishVoice(voice) {
+  const voiceName = String(voice?.name || '');
+  const voiceLang = String(voice?.lang || '');
+  return /^en[-_]/i.test(voiceLang) || /english|united states|united kingdom|australia|canada/i.test(voiceName);
+}
+
+function compareVoicePriority(leftVoice, rightVoice, language = 'vi-VN') {
   const leftName = String(leftVoice?.name || '').toLowerCase();
   const rightName = String(rightVoice?.name || '').toLowerCase();
 
-  const scoreVoice = (voiceName) => {
+  const scoreVoice = (voiceName, voice) => {
     let score = 0;
     if (voiceName.includes('natural')) score += 6;
     if (voiceName.includes('online')) score += 4;
     if (voiceName.includes('microsoft')) score += 3;
-    if (voiceName.includes('hoaimy')) score += 2;
-    if (voiceName.includes('namminh')) score += 2;
+    if (voice?.default) score += 2;
+
+    if (/^vi/i.test(language)) {
+      if (voiceName.includes('hoaimy')) score += 2;
+      if (voiceName.includes('namminh')) score += 2;
+    }
+
+    if (/^en/i.test(language)) {
+      if (voiceName.includes('aria')) score += 2;
+      if (voiceName.includes('jenny')) score += 2;
+      if (voiceName.includes('guy')) score += 2;
+      if (voiceName.includes('davis')) score += 2;
+      if (voiceName.includes('zira')) score += 2;
+      if (voiceName.includes('samantha')) score += 2;
+    }
+
     return score;
   };
 
-  return scoreVoice(rightName) - scoreVoice(leftName);
+  return scoreVoice(rightName, rightVoice) - scoreVoice(leftName, leftVoice);
 }
 
-function getSelectableTtsVoices(voices) {
+function getVoicesForLanguage(voices, language = 'vi-VN') {
   const safeVoices = Array.isArray(voices) ? voices : [];
-  const vietnameseVoices = safeVoices
-    .filter(isVietnameseVoice)
-    .sort(compareVoicePriority);
-
-  return vietnameseVoices.length ? vietnameseVoices : safeVoices;
+  const matcher = /^en/i.test(language) ? isEnglishVoice : isVietnameseVoice;
+  return safeVoices
+    .filter(matcher)
+    .sort((leftVoice, rightVoice) => compareVoicePriority(leftVoice, rightVoice, language));
 }
 
-function pickPreferredVoice(voices, preferredVoiceURI = '') {
+function pickPreferredVoice(voices, preferredVoiceURI = '', language = 'vi-VN') {
   const safeVoices = Array.isArray(voices) ? voices : [];
   if (!safeVoices.length) {
     return null;
   }
 
-  const selectableVoices = getSelectableTtsVoices(safeVoices);
+  const selectableVoices = getVoicesForLanguage(safeVoices, language);
+  if (!selectableVoices.length) {
+    return null;
+  }
+
   const normalizedPreferredVoiceURI = String(preferredVoiceURI || '').trim();
   if (normalizedPreferredVoiceURI) {
     const matchedVoice = selectableVoices.find(
@@ -232,12 +380,7 @@ function pickPreferredVoice(voices, preferredVoiceURI = '') {
     }
   }
 
-  return (
-    selectableVoices[0] ||
-    safeVoices.find((voice) => voice?.default) ||
-    safeVoices[0] ||
-    null
-  );
+  return selectableVoices[0] || null;
 }
 
 function normalizeReadingNote(note) {
@@ -1333,7 +1476,15 @@ export default function ChapterReader() {
   const [autoScrollSpeed, setAutoScrollSpeed] = useState(0.8);
   const [ttsSupported, setTtsSupported] = useState(false);
   const [ttsVoices, setTtsVoices] = useState([]);
-  const [ttsVoiceURI, setTtsVoiceURI] = useState(() => getStoredTtsSettings().voiceURI);
+  const [ttsLanguageMode, setTtsLanguageMode] = useState(
+    () => getStoredTtsSettings().languageMode,
+  );
+  const [ttsVietnameseVoiceURI, setTtsVietnameseVoiceURI] = useState(
+    () => getStoredTtsSettings().vietnameseVoiceURI,
+  );
+  const [ttsEnglishVoiceURI, setTtsEnglishVoiceURI] = useState(
+    () => getStoredTtsSettings().englishVoiceURI,
+  );
   const [ttsRate, setTtsRate] = useState(() => getStoredTtsSettings().rate);
   const [ttsPitch, setTtsPitch] = useState(() => getStoredTtsSettings().pitch);
   const [ttsStatus, setTtsStatus] = useState('idle');
@@ -1502,16 +1653,30 @@ export default function ChapterReader() {
   }, []);
 
   useEffect(() => {
-    const preferredVoice = pickPreferredVoice(ttsVoices, ttsVoiceURI);
-    if (!preferredVoice) {
-      return;
+    const preferredVietnameseVoice = pickPreferredVoice(
+      ttsVoices,
+      ttsVietnameseVoiceURI,
+      'vi-VN',
+    );
+    if (preferredVietnameseVoice) {
+      const nextVoiceURI = String(preferredVietnameseVoice.voiceURI || '');
+      if (nextVoiceURI && nextVoiceURI !== ttsVietnameseVoiceURI) {
+        setTtsVietnameseVoiceURI(nextVoiceURI);
+      }
     }
 
-    const nextVoiceURI = String(preferredVoice.voiceURI || '');
-    if (nextVoiceURI && nextVoiceURI !== ttsVoiceURI) {
-      setTtsVoiceURI(nextVoiceURI);
+    const preferredEnglishVoice = pickPreferredVoice(
+      ttsVoices,
+      ttsEnglishVoiceURI,
+      'en-US',
+    );
+    if (preferredEnglishVoice) {
+      const nextVoiceURI = String(preferredEnglishVoice.voiceURI || '');
+      if (nextVoiceURI && nextVoiceURI !== ttsEnglishVoiceURI) {
+        setTtsEnglishVoiceURI(nextVoiceURI);
+      }
     }
-  }, [ttsVoiceURI, ttsVoices]);
+  }, [ttsEnglishVoiceURI, ttsVietnameseVoiceURI, ttsVoices]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1522,13 +1687,15 @@ export default function ChapterReader() {
       window.localStorage.setItem(
         READER_TTS_SETTINGS_KEY,
         JSON.stringify({
-          voiceURI: ttsVoiceURI,
+          languageMode: ttsLanguageMode,
+          vietnameseVoiceURI: ttsVietnameseVoiceURI,
+          englishVoiceURI: ttsEnglishVoiceURI,
           rate: ttsRate,
           pitch: ttsPitch,
         }),
       );
     } catch {}
-  }, [ttsPitch, ttsRate, ttsVoiceURI]);
+  }, [ttsEnglishVoiceURI, ttsLanguageMode, ttsPitch, ttsRate, ttsVietnameseVoiceURI]);
 
   useEffect(() => {
     return () => {
@@ -1718,17 +1885,29 @@ export default function ChapterReader() {
     `${chapterId || ''}::${pageIndex ?? ''}::${paragraphIndex ?? ''}`;
   const isPageNoteProcessing = (pageIndex, paragraphIndex = null) =>
     noteProcessingKeys.includes(makePageNoteKey(pageIndex, paragraphIndex));
-  const ttsVoiceOptions = useMemo(
-    () => getSelectableTtsVoices(ttsVoices),
+  const vietnameseTtsVoiceOptions = useMemo(
+    () => getVoicesForLanguage(ttsVoices, 'vi-VN'),
+    [ttsVoices],
+  );
+  const englishTtsVoiceOptions = useMemo(
+    () => getVoicesForLanguage(ttsVoices, 'en-US'),
     [ttsVoices],
   );
   const hasVietnameseTtsVoice = useMemo(
     () => ttsVoices.some(isVietnameseVoice),
     [ttsVoices],
   );
-  const selectedTtsVoice = useMemo(
-    () => pickPreferredVoice(ttsVoices, ttsVoiceURI),
-    [ttsVoiceURI, ttsVoices],
+  const hasEnglishTtsVoice = useMemo(
+    () => ttsVoices.some(isEnglishVoice),
+    [ttsVoices],
+  );
+  const selectedVietnameseTtsVoice = useMemo(
+    () => pickPreferredVoice(ttsVoices, ttsVietnameseVoiceURI, 'vi-VN'),
+    [ttsVietnameseVoiceURI, ttsVoices],
+  );
+  const selectedEnglishTtsVoice = useMemo(
+    () => pickPreferredVoice(ttsVoices, ttsEnglishVoiceURI, 'en-US'),
+    [ttsEnglishVoiceURI, ttsVoices],
   );
 
   const stopTts = (resetParagraph = true) => {
@@ -1772,11 +1951,17 @@ export default function ChapterReader() {
 
     speechQueueIndexRef.current = queueIndex;
     const utterance = new window.SpeechSynthesisUtterance(currentItem.text);
-    if (selectedTtsVoice) {
-      utterance.voice = selectedTtsVoice;
-      utterance.lang = selectedTtsVoice.lang || 'vi-VN';
+    const effectiveLanguage = currentItem.language === 'en-US' ? 'en-US' : 'vi-VN';
+    const selectedVoice =
+      effectiveLanguage === 'en-US'
+        ? selectedEnglishTtsVoice || selectedVietnameseTtsVoice
+        : selectedVietnameseTtsVoice || selectedEnglishTtsVoice;
+
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+      utterance.lang = selectedVoice.lang || effectiveLanguage;
     } else {
-      utterance.lang = 'vi-VN';
+      utterance.lang = effectiveLanguage;
     }
     utterance.rate = ttsRate;
     utterance.pitch = ttsPitch;
@@ -1837,7 +2022,11 @@ export default function ChapterReader() {
       0,
       Math.min(paragraphBlocks.length - 1, Number(startParagraphIndex) || 0),
     );
-    const nextQueue = buildSpeechQueue(paragraphBlocks, safeStartParagraphIndex);
+    const nextQueue = buildSpeechQueue(
+      paragraphBlocks,
+      safeStartParagraphIndex,
+      ttsLanguageMode,
+    );
     if (!nextQueue.length) {
       return;
     }
@@ -2007,7 +2196,13 @@ export default function ChapterReader() {
     }
 
     startTtsFromParagraph(activeSpeechParagraph);
-  }, [ttsPitch, ttsRate, ttsVoiceURI]);
+  }, [
+    ttsEnglishVoiceURI,
+    ttsLanguageMode,
+    ttsPitch,
+    ttsRate,
+    ttsVietnameseVoiceURI,
+  ]);
 
   useEffect(() => {
     if (!autoScrollEnabled || typeof window === 'undefined') {
@@ -3083,10 +3278,30 @@ export default function ChapterReader() {
             {ttsSupported ? (
               <>
                 <label>
-                  Giọng:
+                  Chế độ:
                   <select
-                    value={ttsVoiceURI}
-                    onChange={(e) => setTtsVoiceURI(e.target.value)}
+                    value={ttsLanguageMode}
+                    onChange={(e) => setTtsLanguageMode(String(e.target.value || TTS_LANGUAGE_MODES.auto))}
+                    style={{
+                      marginLeft: '4px',
+                      padding: '2px 6px',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      minWidth: '140px',
+                    }}
+                  >
+                    <option value={TTS_LANGUAGE_MODES.auto}>Tự động VI/EN</option>
+                    <option value={TTS_LANGUAGE_MODES.vietnamese}>Ưu tiên tiếng Việt</option>
+                    <option value={TTS_LANGUAGE_MODES.english}>Ưu tiên tiếng Anh</option>
+                  </select>
+                </label>
+                <label>
+                  Giọng Việt:
+                  <select
+                    value={ttsVietnameseVoiceURI}
+                    onChange={(e) => setTtsVietnameseVoiceURI(e.target.value)}
                     style={{
                       marginLeft: '4px',
                       padding: '2px 6px',
@@ -3096,8 +3311,32 @@ export default function ChapterReader() {
                       borderRadius: '4px',
                       minWidth: '170px',
                     }}
+                    disabled={!vietnameseTtsVoiceOptions.length}
                   >
-                    {ttsVoiceOptions.map((voice) => (
+                    {vietnameseTtsVoiceOptions.map((voice) => (
+                      <option key={voice.voiceURI} value={voice.voiceURI}>
+                        {`${voice.name} (${voice.lang})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Giọng Anh:
+                  <select
+                    value={ttsEnglishVoiceURI}
+                    onChange={(e) => setTtsEnglishVoiceURI(e.target.value)}
+                    style={{
+                      marginLeft: '4px',
+                      padding: '2px 6px',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      minWidth: '170px',
+                    }}
+                    disabled={!englishTtsVoiceOptions.length}
+                  >
+                    {englishTtsVoiceOptions.map((voice) => (
                       <option key={voice.voiceURI} value={voice.voiceURI}>
                         {`${voice.name} (${voice.lang})`}
                       </option>
@@ -3148,6 +3387,11 @@ export default function ChapterReader() {
                 {!hasVietnameseTtsVoice && (
                   <span className="reader-tts-note">
                     Máy chưa có giọng tiếng Việt, nên TTS có thể phát âm chưa tự nhiên.
+                  </span>
+                )}
+                {!hasEnglishTtsVoice && (
+                  <span className="reader-tts-note">
+                    Máy chưa có giọng tiếng Anh, nên đoạn English sẽ phải fallback sang giọng khác.
                   </span>
                 )}
               </>
