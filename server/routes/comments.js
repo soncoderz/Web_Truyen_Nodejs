@@ -12,6 +12,10 @@ const {
   buildPublicProfileMap,
   hydrateCommentsWithProfiles,
 } = require("../services/publicProfileService");
+const {
+  emitCommentCreated,
+  emitCommentDeleted,
+} = require("../services/realtime");
 
 const router = express.Router();
 
@@ -36,7 +40,23 @@ async function enrichComments(comments) {
 router.get(
   "/story/:storyId",
   asyncHandler(async (req, res) => {
-    const comments = await Comment.find({ storyId: req.params.storyId })
+    const comments = await Comment.find({
+      storyId: req.params.storyId,
+      chapterId: null,
+      pageIndex: null,
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json(await enrichComments(comments));
+  }),
+);
+
+router.get(
+  "/chapter/:chapterId/thread",
+  asyncHandler(async (req, res) => {
+    const comments = await Comment.find({
+      chapterId: req.params.chapterId,
+    })
       .sort({ createdAt: -1 })
       .lean();
     res.json(await enrichComments(comments));
@@ -109,7 +129,9 @@ router.post(
           : Number(req.body.gifSize),
     });
 
-    res.json(serializeDoc(comment));
+    const [enrichedComment] = await enrichComments([comment]);
+    emitCommentCreated(enrichedComment || serializeDoc(comment));
+    res.json(enrichedComment || serializeDoc(comment));
   }),
 );
 
@@ -128,7 +150,9 @@ router.delete(
       throw httpError(400, "Lỗi: Không có quyền thực hiện!");
     }
 
+    const serializedComment = serializeDoc(comment);
     await comment.deleteOne();
+    emitCommentDeleted(serializedComment);
     res.json(buildMessage("Đã xóa bình luận thành công!"));
   }),
 );

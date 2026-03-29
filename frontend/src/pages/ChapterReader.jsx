@@ -1,27 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import BookmarkIcon from '../components/BookmarkIcon';
-import CommentComposer from '../components/CommentComposer';
 import CommentIdentity from '../components/CommentIdentity';
+import ReactionBar from '../components/ReactionBar';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import useReactionSummaries from '../hooks/useReactionSummaries';
 import useBookmarks, { getBookmarkLocation } from '../hooks/useBookmarks';
 import { markChapterAsRead } from '../utils/readingStorage';
 import { repairMojibakeText } from '../utils/textRepair';
+import {
+  REALTIME_EVENTS,
+  subscribeChapterPresence,
+  subscribeCommentTargets,
+  unsubscribeChapterPresence,
+  unsubscribeCommentTargets,
+} from '../services/realtime';
 import {
   createComment,
   deleteReaderNote,
   getChapter,
   getChaptersByStory,
+  getCommentThreadByChapter,
   getCommentsByPage,
   getReaderNotesByChapter,
-  getCommentsByStory,
   getReadingHistoryByStory,
   getStory,
   saveReaderNote,
   saveReadingHistory,
 } from '../services/api';
 import { toast, toastFromError } from '../services/toast';
+import {
+  buildChapterReactionTarget,
+  buildMangaPageReactionTarget,
+} from '../utils/reactions';
+
+const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
 
 function splitChapterContentIntoParagraphs(content) {
   if (!content) {
@@ -81,6 +95,23 @@ function getBookmarkDisplayNote(note, fallbackLabel = '') {
   return normalizedNote;
 }
 
+function prependComment(list, comment) {
+  if (!comment?.id) {
+    return Array.isArray(list) ? list : [];
+  }
+
+  const nextList = (Array.isArray(list) ? list : []).filter(
+    (item) => String(item?.id || '') !== String(comment.id),
+  );
+  return [comment, ...nextList];
+}
+
+function removeComment(list, commentId) {
+  return (Array.isArray(list) ? list : []).filter(
+    (item) => String(item?.id || '') !== String(commentId || ''),
+  );
+}
+
 function MangaPageWithComments({
   page,
   idx,
@@ -88,6 +119,8 @@ function MangaPageWithComments({
   chapterId,
   user,
   pageRef,
+  reactionSummary = null,
+  reactionLoading = false,
   bookmarkItem = null,
   noteItem = null,
   bookmarked = false,
@@ -101,6 +134,7 @@ function MangaPageWithComments({
   onRemoveBookmark,
   onSaveNote,
   onDeleteNote,
+  onReact,
 }) {
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState(initialComments);
@@ -122,6 +156,7 @@ function MangaPageWithComments({
   const noteFromBookmarkFallback = !savedPageNote && Boolean(fallbackBookmarkNote);
   const hasPageNote = Boolean(noteText);
   const busy = bookmarkBusy || noteBusy;
+  const accessToken = user?.accessToken || user?.token || null;
 
   useEffect(() => {
     setCommentCount(initialComments.length);
@@ -204,6 +239,63 @@ function MangaPageWithComments({
     setLoading(false);
   };
 
+  useEffect(() => {
+    if (!open || !showCommentToggle || !chapterId) {
+      return undefined;
+    }
+
+    const target = { scope: 'PAGE', chapterId, pageIndex: idx };
+    const socket = subscribeCommentTargets(target, accessToken);
+    if (!socket) {
+      return undefined;
+    }
+
+    const handleCommentCreated = (payload) => {
+      if (
+        String(payload?.scope || '').toUpperCase() !== 'PAGE' ||
+        String(payload?.chapterId || '') !== String(chapterId) ||
+        Number(payload?.pageIndex) !== Number(idx) ||
+        !payload?.comment
+      ) {
+        return;
+      }
+
+      setComments((prev) => {
+        const nextComments = prependComment(prev, payload.comment);
+        setCommentCount(nextComments.length);
+        onPageCommentsChange?.(idx, nextComments);
+        return nextComments;
+      });
+    };
+
+    const handleCommentDeleted = (payload) => {
+      if (
+        String(payload?.scope || '').toUpperCase() !== 'PAGE' ||
+        String(payload?.chapterId || '') !== String(chapterId) ||
+        Number(payload?.pageIndex) !== Number(idx) ||
+        !payload?.commentId
+      ) {
+        return;
+      }
+
+      setComments((prev) => {
+        const nextComments = removeComment(prev, payload.commentId);
+        setCommentCount(nextComments.length);
+        onPageCommentsChange?.(idx, nextComments);
+        return nextComments;
+      });
+    };
+
+    socket.on(REALTIME_EVENTS.commentCreated, handleCommentCreated);
+    socket.on(REALTIME_EVENTS.commentDeleted, handleCommentDeleted);
+
+    return () => {
+      socket.off(REALTIME_EVENTS.commentCreated, handleCommentCreated);
+      socket.off(REALTIME_EVENTS.commentDeleted, handleCommentDeleted);
+      unsubscribeCommentTargets(target);
+    };
+  }, [accessToken, chapterId, idx, onPageCommentsChange, open, showCommentToggle]);
+
   const togglePanel = (event) => {
     if (!showCommentToggle) return;
     event?.stopPropagation();
@@ -217,16 +309,25 @@ function MangaPageWithComments({
   const submitPageComment = async () => {
     if (!user) return alert('Vui lòng đăng nhập để bình luận!');
     if (!text.trim()) return;
+    let createdComment = null;
     try {
       setSending(true);
-      await createComment({
+      const response = await createComment({
         storyId,
         chapterId,
         pageIndex: idx,
         content: text.trim(),
       });
+      createdComment = response.data || null;
       setText('');
-      await loadPageComments();
+      if (createdComment) {
+        setComments((prev) => {
+          const nextComments = prependComment(prev, createdComment);
+          setCommentCount(nextComments.length);
+          onPageCommentsChange?.(idx, nextComments);
+          return nextComments;
+        });
+      }
       toast.success('Đã gửi bình luận.');
     } catch (e) {
       console.error(e);
@@ -330,14 +431,20 @@ function MangaPageWithComments({
       transition: 'gap 0.3s ease',
     }}>
       <div
-        className="manga-page-media"
-        ref={pageRef}
+        className="manga-page-primary"
         style={{
-          position: 'relative',
           flex: '1 1 0',
           minWidth: 0,
           width: '100%',
           maxWidth: '900px',
+        }}
+      >
+      <div
+        className="manga-page-media"
+        ref={pageRef}
+        style={{
+          position: 'relative',
+          width: '100%',
           margin: 0,
           padding: 0,
           scrollMarginTop: 'calc(var(--header-height, 64px) + 20px)',
@@ -359,6 +466,17 @@ function MangaPageWithComments({
           loading="lazy"
           onError={(e) => { e.target.style.display = 'none'; }}
         />
+
+        <div className="manga-page-reaction-wrap">
+          <ReactionBar
+            compact
+            className="manga-page-reaction-bar"
+            summary={reactionSummary}
+            loading={reactionLoading}
+            promptLabel={`Trang ${idx + 1}`}
+            onReact={onReact}
+          />
+        </div>
 
         {showBookmarkToggle && (
           <button
@@ -624,6 +742,7 @@ function MangaPageWithComments({
         </button>
         )}
       </div>
+      </div>
 
       {showCommentToggle && (
       <div
@@ -770,6 +889,14 @@ export default function ChapterReader() {
   const [chapters, setChapters] = useState([]);
   const [comments, setComments] = useState([]);
   const [visibleCount, setVisibleCount] = useState(5);
+  const [newComment, setNewComment] = useState('');
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [gifSearch, setGifSearch] = useState('');
+  const [gifResults, setGifResults] = useState([]);
+  const [gifLoading, setGifLoading] = useState(false);
+  const [selectedGifUrl, setSelectedGifUrl] = useState(null);
+  const [selectedGifSize, setSelectedGifSize] = useState(null);
+  const [gifError, setGifError] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -784,6 +911,8 @@ export default function ChapterReader() {
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteStatus, setNoteStatus] = useState('');
   const [missionUpdate, setMissionUpdate] = useState(null);
+  const [chapterPresenceCount, setChapterPresenceCount] = useState(null);
+  const searchTimer = useRef(null);
   const noteSaveTimer = useRef(null);
   const noteHydratedRef = useRef(false);
   const lastSavedNoteRef = useRef('');
@@ -807,7 +936,89 @@ export default function ChapterReader() {
     setPageNotes({});
     setNoteProcessingKeys([]);
     setMissionUpdate(null);
+    setChapterPresenceCount(null);
   }, [chapterId]);
+
+  useEffect(() => {
+    if (!storyId || !chapterId) {
+      setChapterPresenceCount(null);
+      return undefined;
+    }
+
+    const target = { storyId, chapterId };
+    const accessToken = user?.accessToken || user?.token || null;
+    const socket = subscribeChapterPresence(target, accessToken);
+    if (!socket) {
+      return undefined;
+    }
+
+    const handleChapterPresence = (payload) => {
+      if (
+        String(payload?.storyId || '') !== String(storyId) ||
+        String(payload?.chapterId || '') !== String(chapterId)
+      ) {
+        return;
+      }
+
+      const nextCount = Number(payload?.count);
+      setChapterPresenceCount(
+        Number.isFinite(nextCount) && nextCount >= 0 ? nextCount : null,
+      );
+    };
+
+    socket.on(REALTIME_EVENTS.chapterPresence, handleChapterPresence);
+
+    return () => {
+      socket.off(REALTIME_EVENTS.chapterPresence, handleChapterPresence);
+      unsubscribeChapterPresence(target);
+    };
+  }, [chapterId, storyId, user?.accessToken, user?.token]);
+
+  useEffect(() => {
+    if (!chapterId) {
+      return undefined;
+    }
+
+    const target = { scope: 'CHAPTER', chapterId };
+    const accessToken = user?.accessToken || user?.token || null;
+    const socket = subscribeCommentTargets(target, accessToken);
+    if (!socket) {
+      return undefined;
+    }
+
+    const handleCommentCreated = (payload) => {
+      if (
+        String(payload?.scope || '').toUpperCase() !== 'CHAPTER' ||
+        String(payload?.chapterId || '') !== String(chapterId) ||
+        !payload?.comment
+      ) {
+        return;
+      }
+
+      setComments((prev) => prependComment(prev, payload.comment));
+    };
+
+    const handleCommentDeleted = (payload) => {
+      if (
+        String(payload?.scope || '').toUpperCase() !== 'CHAPTER' ||
+        String(payload?.chapterId || '') !== String(chapterId) ||
+        !payload?.commentId
+      ) {
+        return;
+      }
+
+      setComments((prev) => removeComment(prev, payload.commentId));
+    };
+
+    socket.on(REALTIME_EVENTS.commentCreated, handleCommentCreated);
+    socket.on(REALTIME_EVENTS.commentDeleted, handleCommentDeleted);
+
+    return () => {
+      socket.off(REALTIME_EVENTS.commentCreated, handleCommentCreated);
+      socket.off(REALTIME_EVENTS.commentDeleted, handleCommentDeleted);
+      unsubscribeCommentTargets(target);
+    };
+  }, [chapterId, user?.accessToken, user?.token]);
 
   useEffect(() => {
     const getVar = (name, fallback) => {
@@ -821,6 +1032,7 @@ export default function ChapterReader() {
 
   useEffect(() => {
     return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
       if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current);
     };
   }, []);
@@ -841,7 +1053,7 @@ export default function ChapterReader() {
         getChapter(chapterId),
         getStory(storyId),
         getChaptersByStory(storyId),
-        getCommentsByStory(storyId),
+        getCommentThreadByChapter(chapterId),
         historyPromise,
         pageNotesPromise,
       ]);
@@ -924,6 +1136,35 @@ export default function ChapterReader() {
     ),
     [chapter?.content, isManga],
   );
+  const chapterReactionTarget = useMemo(
+    () => buildChapterReactionTarget(storyId, chapterId),
+    [chapterId, storyId],
+  );
+  const pageReactionTargets = useMemo(
+    () => (
+      isManga
+        ? (chapter?.pages || [])
+            .map((_, pageIndex) => buildMangaPageReactionTarget(storyId, chapterId, pageIndex))
+            .filter(Boolean)
+        : []
+    ),
+    [chapter?.pages, chapterId, isManga, storyId],
+  );
+  const reactionTargets = useMemo(
+    () => [
+      chapterReactionTarget,
+      ...pageReactionTargets,
+    ].filter(Boolean),
+    [
+      chapterReactionTarget,
+      pageReactionTargets,
+    ],
+  );
+  const { getSummary: getReactionSummary, loadingTarget: isReactionLoading, reactToTarget } =
+    useReactionSummaries({
+      targets: reactionTargets,
+      user,
+    });
   const targetPageIndex = Number.parseInt(searchParams.get('page') || '', 10);
   const targetParagraphIndex = Number.parseInt(searchParams.get('paragraph') || '', 10);
   const bookmarkTargetPage = Number.isInteger(targetPageIndex) ? targetPageIndex - 1 : null;
@@ -931,6 +1172,9 @@ export default function ChapterReader() {
     ? targetParagraphIndex - 1
     : null;
   const currentStoryBookmark = getStoryBookmark(storyId);
+  const chapterReactionSummary = chapterReactionTarget
+    ? getReactionSummary(chapterReactionTarget)
+    : null;
   const readerTopOffset = 'var(--header-height, 64px)';
   const chapterComments = comments.filter((comment) => comment.chapterId === chapterId);
   const pageCommentsByIndex = {};
@@ -1224,28 +1468,17 @@ export default function ChapterReader() {
     };
   }, [isManga, showReadingNote]);
 
-  const handleComment = async ({ content, gifUrl, gifSize }) => {
-    const newComment = content || '';
-    const selectedGifUrl = gifUrl || null;
-    const selectedGifSize = gifSize || null;
-
-    if (!user) {
-      alert('Vui lòng đăng nhập!');
-      return false;
-    }
-
-    if (!newComment.trim() && !selectedGifUrl) {
-      return false;
-    }
-
+  const handleComment = async () => {
+    if (!user) return alert('Vui lòng đăng nhập!');
+    if (!newComment.trim() && !selectedGifUrl) return;
     if (selectedGifSize && selectedGifSize > 2 * 1024 * 1024) {
       alert('GIF lớn hơn 2MB, vui lòng chọn GIF nhỏ hơn.');
-      return false;
+      return;
     }
-
+    let createdComment = null;
     try {
       setSending(true);
-      await createComment({
+      const response = await createComment({
         storyId,
         chapterId,
         chapterNumber: chapter?.chapterNumber,
@@ -1253,21 +1486,62 @@ export default function ChapterReader() {
         gifUrl: selectedGifUrl || null,
         gifSize: selectedGifSize || null,
       });
-      const cmRes = await getCommentsByStory(storyId);
-      setComments(cmRes.data);
-      setVisibleCount(5);
-      toast.success('Đã gửi bình luận.');
-      return true;
+      createdComment = response.data || null;
     } catch (e) {
       if (e?.response?.status === 401) {
         alert('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        return false;
+        setSending(false);
+        return;
       }
-      toastFromError(e, 'Không gửi được bình luận.');
-      return false;
-    } finally {
       setSending(false);
+      toastFromError(e, 'Không gửi được bình luận.');
+      return;
     }
+    setNewComment('');
+    setSelectedGifUrl(null);
+    setSelectedGifSize(null);
+    setShowGifPicker(false);
+    if (createdComment) {
+      setComments((prev) => prependComment(prev, createdComment));
+    }
+    setVisibleCount(5);
+    toast.success('Đã gửi bình luận.');
+    setSending(false);
+  };
+
+  const searchGifs = async (keyword) => {
+    const q = keyword.trim();
+    if (q.startsWith('http') || q.length > 80) {
+      setGifError('Từ khóa quá dài hoặc là một URL, hãy nhập từ khóa ngắn.');
+      setGifResults([]);
+      return;
+    }
+    setGifError('');
+    if (!q) return loadTrendingGifs();
+    setGifLoading(true);
+    try {
+      const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(q)}&limit=12&rating=g`);
+      const data = await res.json();
+      setGifResults(data.data || []);
+    } catch (e) {
+      console.error(e);
+      setGifError('Không tải được GIF. Thử lại sau.');
+    }
+    setGifLoading(false);
+  };
+
+  const loadTrendingGifs = async () => {
+    setGifError('');
+    setGifLoading(true);
+    try {
+      const res = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=12&rating=g`);
+      const data = await res.json();
+      setGifResults(data.data || []);
+    } catch (e) {
+      console.error(e);
+      setGifError('Không tải được GIF nổi bật.');
+    }
+    setGifLoading(false);
   };
 
   if (loading) return <div className="loading"><div className="spinner" />Đang tải...</div>;
@@ -1805,6 +2079,24 @@ export default function ChapterReader() {
           background: isManga ? 'var(--badge-manga-bg)' : 'var(--badge-novel-bg)',
           color: isManga ? 'var(--warning)' : 'var(--accent)',
         }}>{isManga ? 'Truyện Tranh' : 'Light Novel'}</span>
+        {typeof chapterPresenceCount === 'number' && (
+          <div className="chapter-presence-chip">
+            <span className="chapter-presence-dot" />
+            <span>{`Đang có ${chapterPresenceCount.toLocaleString('vi-VN')} người đọc chương này`}</span>
+          </div>
+        )}
+        <div className="chapter-reaction-wrap">
+          {chapterReactionTarget && chapterReactionSummary && (
+            <ReactionBar
+              compact
+              className="chapter-reaction-bar"
+              summary={chapterReactionSummary}
+              loading={isReactionLoading(chapterReactionTarget)}
+              promptLabel="Chuong"
+              onReact={(emotion) => reactToTarget(chapterReactionTarget, emotion)}
+            />
+          )}
+        </div>
       </div>
 
       {/* Content */}
@@ -1820,6 +2112,8 @@ export default function ChapterReader() {
                   storyId={storyId}
                   chapterId={chapterId}
                   user={user}
+                  reactionSummary={getReactionSummary(pageReactionTargets[idx])}
+                  reactionLoading={isReactionLoading(pageReactionTargets[idx])}
                   pageRef={(node) => {
                     if (node) {
                       mangaPageRefs.current[idx] = node;
@@ -1843,6 +2137,7 @@ export default function ChapterReader() {
                   onRemoveBookmark={handlePageBookmarkRemove}
                   onSaveNote={handleSavePageNote}
                   onDeleteNote={handleDeletePageNote}
+                  onReact={(emotion) => reactToTarget(pageReactionTargets[idx], emotion)}
                 />
               ))
             ) : (
@@ -1950,17 +2245,110 @@ export default function ChapterReader() {
       {/* Comments */}
       <div className="chapter-reader-comments" style={{ maxWidth: '750px', margin: '0 auto', padding: '1rem' }}>
         <div className="card">
-          <h3>💬 Bình luận truyện ({visibleComments.length})</h3>
-          <CommentComposer
-            placeholder="Viết bình luận..."
-            submitting={sending}
-            onSubmit={handleComment}
-            toolbarClassName="chapter-comment-toolbar"
-            toolbarStyle={{ marginTop: '0.75rem' }}
-            previewClassName="chapter-gif-preview"
-            searchClassName="chapter-gif-search"
-            gridClassName="chapter-gif-grid"
-          />
+          <h3>💬 Bình luận chương ({visibleComments.length})</h3>
+          <div className="chapter-comment-toolbar" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.75rem' }}>
+            <input
+              className="form-control"
+              style={{ flex: 1 }}
+              placeholder="Viết bình luận..."
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleComment()}
+            />
+            <button
+              className="btn btn-outline"
+              style={{ minWidth: '64px' }}
+              onClick={() => {
+                setShowGifPicker((v) => !v);
+                if (!showGifPicker) {
+                  setGifResults([]);
+                  setGifSearch('');
+                  loadTrendingGifs();
+                }
+              }}
+            >
+              GIF
+            </button>
+            <button className="btn btn-primary" onClick={handleComment} disabled={sending}>Gửi</button>
+          </div>
+          {selectedGifUrl && (
+            <div className="chapter-gif-preview" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
+              <img src={selectedGifUrl} alt="gif" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: '8px' }} />
+              <button className="btn btn-outline" onClick={() => { setSelectedGifUrl(null); setSelectedGifSize(null); }}>Xóa GIF</button>
+            </div>
+          )}
+          {showGifPicker && (
+            <div style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '0.75rem', marginBottom: '1rem', background: 'var(--bg-card)' }}>
+              <div className="chapter-gif-search" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <input
+                  className="form-control"
+                  placeholder="Tìm GIF..."
+                  value={gifSearch}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (searchTimer.current) clearTimeout(searchTimer.current);
+                    searchTimer.current = setTimeout(() => searchGifs(value), 350);
+                    setGifSearch(value);
+                  }}
+                />
+                <button className="btn btn-outline" onClick={() => searchGifs(gifSearch)}>Tìm</button>
+              </div>
+              {gifError && <p style={{ color: 'var(--warning)', margin: '0 0 0.4rem 0' }}>{gifError}</p>}
+              {gifLoading && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>?ang t?i GIF...</p>}
+              {!gifLoading && !gifError && (
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                  {['funny', 'meme', 'wow', 'sad', 'celebrate', 'cute'].map((tag) => (
+                    <button
+                      key={tag}
+                      className="btn btn-outline"
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+                      onClick={() => { setGifSearch(tag); searchGifs(tag); }}
+                    >
+                      #{tag}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="chapter-gif-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '0.4rem', maxHeight: '260px', overflowY: 'auto' }}>
+                {gifResults.map((g) => (
+                  <div key={g.id} style={{ position: 'relative', width: '100%', height: '90px' }}>
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      background: 'var(--bg-card)', border: '1px solid var(--border)',
+                      borderRadius: '8px', opacity: 0.4
+                    }} />
+                    <img
+                      src={g.images?.downsized?.url}
+                      alt={g.title}
+                      loading="lazy"
+                      style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '8px', cursor: 'pointer', border: selectedGifUrl === g.images?.downsized?.url ? '2px solid var(--accent)' : '1px solid var(--border)' }}
+                      onLoad={(e) => { e.currentTarget.previousSibling.style.display = 'none'; }}
+                      onClick={() => {
+                        const size = parseInt(g.images?.downsized?.size || '0', 10);
+                        if (size > 2 * 1024 * 1024) {
+                          alert('GIF lớn hơn 2MB, chọn GIF khác.');
+                          return;
+                        }
+                        const probe = new Image();
+                        probe.onload = () => {
+                          setSelectedGifUrl(g.images?.downsized?.url);
+                          setSelectedGifSize(size || null);
+                          setShowGifPicker(false);
+                        };
+                        probe.onerror = () => alert('Không tải được GIF này, thử cái khác.');
+                        probe.src = g.images?.downsized?.url;
+                      }}
+                      onError={(e) => {
+                        const fallback = g.images?.downsized?.url;
+                        if (fallback && e.target.src !== fallback) e.target.src = fallback;
+                      }}
+                    />
+                  </div>
+                ))}
+                {!gifLoading && gifResults.length === 0 && gifSearch && <p style={{ color: 'var(--text-secondary)' }}>Không tìm thấy GIF.</p>}
+              </div>
+            </div>
+          )}
           {visibleComments.slice(0, visibleCount).map((c) => (
             <div key={c.id} style={{ padding: '0.8rem', borderBottom: '1px solid var(--border)', marginBottom: '0.4rem' }}>
               <div
@@ -2002,7 +2390,6 @@ export default function ChapterReader() {
                   src={c.gifUrl}
                   alt="gif"
                   loading="lazy"
-                  decoding="async"
                   style={{
                     marginTop: '0.35rem',
                     width: '180px',
@@ -2032,7 +2419,7 @@ export default function ChapterReader() {
               Xem thêm ({visibleComments.length - visibleCount})
             </button>
           )}
-          {visibleComments.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Chưa có bình luận nào cho truyện này.</p>}
+          {visibleComments.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Chưa có bình luận nào cho chương này.</p>}
         </div>
       </div>
     </div>

@@ -24,6 +24,11 @@ const {
   uniqueStrings,
 } = require("../utils/normalize");
 const { hydrateStory, hydrateStories } = require("../services/hydrationService");
+const {
+  normalizeBundleSize,
+  normalizeCurrencyAmount,
+  normalizePercent,
+} = require("../services/monetizationService");
 const httpError = require("../utils/httpError");
 
 const router = express.Router();
@@ -51,13 +56,20 @@ function buildApprovalQuery(approvalStatus) {
 }
 
 function normalizeUnlockPrice(value) {
-  const amount = normalizeLong(value, 0);
-  return amount < 0 ? 0 : amount;
+  return normalizeCurrencyAmount(value, 0);
 }
 
 function validateStoryPricing(story) {
   if (story.licensed && Number(story.unlockPrice || 0) <= 0) {
     return "Lỗi: Truyện có bản quyền phải có giá mở khóa lớn hơn 0.";
+  }
+
+  if (story.rentalEnabled && Number(story.rentalPrice || 0) <= 0) {
+    return "Loi: Thue truyen 7 ngay phai co gia lon hon 0.";
+  }
+
+  if (story.chapterBundleEnabled && Number(story.chapterBundleSize || 0) < 2) {
+    return "Loi: Combo chuong phai co it nhat 2 chuong.";
   }
 
   return null;
@@ -137,9 +149,57 @@ async function applyStoryRequest(story, request, createMode, allowPricingChanges
         ? normalizeUnlockPrice(request.unlockPrice)
         : 0;
     }
+
+    if (request.rentalEnabled !== undefined || createMode) {
+      story.rentalEnabled = Boolean(request.rentalEnabled);
+    }
+
+    if (
+      request.rentalPrice !== undefined ||
+      createMode ||
+      !Boolean(story.rentalEnabled)
+    ) {
+      story.rentalPrice = story.rentalEnabled
+        ? normalizeCurrencyAmount(request.rentalPrice, 0)
+        : 0;
+    }
+
+    if (request.chapterBundleEnabled !== undefined || createMode) {
+      story.chapterBundleEnabled = Boolean(request.chapterBundleEnabled);
+    }
+
+    if (
+      request.chapterBundleSize !== undefined ||
+      createMode ||
+      !Boolean(story.chapterBundleEnabled)
+    ) {
+      story.chapterBundleSize = story.chapterBundleEnabled
+        ? normalizeBundleSize(request.chapterBundleSize, 3)
+        : 3;
+    }
+
+    if (
+      request.chapterBundleDiscountPercent !== undefined ||
+      createMode ||
+      !Boolean(story.chapterBundleEnabled)
+    ) {
+      story.chapterBundleDiscountPercent = story.chapterBundleEnabled
+        ? normalizePercent(request.chapterBundleDiscountPercent, 15)
+        : 15;
+    }
+
+    if (request.supportEnabled !== undefined || createMode) {
+      story.supportEnabled = Boolean(request.supportEnabled);
+    }
   } else if (createMode) {
     story.licensed = false;
     story.unlockPrice = 0;
+    story.rentalEnabled = false;
+    story.rentalPrice = 0;
+    story.chapterBundleEnabled = false;
+    story.chapterBundleSize = 3;
+    story.chapterBundleDiscountPercent = 15;
+    story.supportEnabled = false;
   }
 
   if (request.relatedStoryIds !== undefined) {

@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const express = require("express");
+const Chapter = require("../models/chapter");
 const PaymentTransaction = require("../models/paymentTransaction");
 const Story = require("../models/story");
 const User = require("../models/user");
@@ -21,6 +22,16 @@ const { getCurrentUserDocument } = require("../utils/currentUser");
 const { buildMessage, serializeDoc } = require("../utils/serialize");
 const { canViewStory, isAdmin, isOwner, isApprovedStatus } = require("../utils/permissions");
 const { normalizeLong } = require("../utils/normalize");
+const {
+  STORY_RENTAL_DURATION_DAYS,
+  buildStoryMonetizationState,
+  buildUserEntitlements,
+  findBundleOfferByChapterIds,
+  hasStoryFullAccess,
+  normalizeCurrencyAmount,
+  resolveChapterAccess,
+  sanitizeRentalEntries,
+} = require("../services/monetizationService");
 const httpError = require("../utils/httpError");
 
 const router = express.Router();
@@ -30,6 +41,10 @@ const PROVIDER_WALLET = "WALLET";
 const PROVIDER_COINS = "COINS";
 const TYPE_TOP_UP = "TOP_UP";
 const TYPE_UNLOCK_STORY = "UNLOCK_STORY";
+const TYPE_UNLOCK_CHAPTER = "UNLOCK_CHAPTER";
+const TYPE_UNLOCK_CHAPTER_BUNDLE = "UNLOCK_CHAPTER_BUNDLE";
+const TYPE_RENT_STORY = "RENT_STORY";
+const TYPE_SUPPORT_AUTHOR = "SUPPORT_AUTHOR";
 const TYPE_UNLOCK_PROFILE_SKIN = "UNLOCK_PROFILE_SKIN";
 const TYPE_WALLET_TO_COINS = "WALLET_TO_COINS";
 const STATUS_PENDING = "PENDING";
@@ -44,8 +59,44 @@ function safePurchasedStoryIds(user) {
   return Array.isArray(user?.purchasedStoryIds) ? [...user.purchasedStoryIds] : [];
 }
 
+function safePurchasedChapterIds(user) {
+  return Array.isArray(user?.purchasedChapterIds) ? [...user.purchasedChapterIds] : [];
+}
+
+function safeRentedStoryAccesses(user) {
+  return sanitizeRentalEntries(user?.rentedStoryAccesses || [])
+    .filter((entry) => entry.isActive)
+    .map(({ storyId, expiresAt }) => ({
+      storyId,
+      expiresAt,
+    }));
+}
+
 function safeCoinBalance(user) {
   return Number(user?.coinBalance || 0);
+}
+
+function appendUniqueIds(existingValues, nextValues) {
+  return Array.from(
+    new Set([...(Array.isArray(existingValues) ? existingValues : []), ...(Array.isArray(nextValues) ? nextValues : [])]),
+  );
+}
+
+function upsertStoryRentalAccess(user, storyId, expiresAt) {
+  const entries = sanitizeRentalEntries(user?.rentedStoryAccesses || []);
+  const remaining = entries
+    .filter((entry) => entry.storyId !== storyId && entry.isActive)
+    .map(({ storyId: currentStoryId, expiresAt: currentExpiresAt }) => ({
+      storyId: currentStoryId,
+      expiresAt: currentExpiresAt,
+    }));
+
+  remaining.push({
+    storyId,
+    expiresAt,
+  });
+
+  user.rentedStoryAccesses = remaining;
 }
 
 function buildCompactId(prefix) {
@@ -136,6 +187,8 @@ router.get(
       coinExchangeRate: COIN_EXCHANGE_RATE,
       coinExchangeMinAmount: MIN_WALLET_TO_COINS_EXCHANGE_AMOUNT,
       purchasedStoryIds: safePurchasedStoryIds(user),
+      purchasedChapterIds: safePurchasedChapterIds(user),
+      rentedStoryAccesses: safeRentedStoryAccesses(user),
       mission: buildMissionSummary(user),
       badges: buildBadgeList(user),
       profileSkins: buildProfileSkinList(user),
@@ -227,22 +280,10 @@ router.post(
       return res.status(404).json(buildMessage("Lỗi: Không tìm thấy truyện!"));
     }
 
-    if (!story.licensed || normalizeLong(story.unlockPrice, 0) <= 0) {
-      return res.json({
-        unlocked: true,
-        balance: safeWalletBalance(user),
-      });
-    }
+    const entitlements = buildUserEntitlements(user);
+    const storyCommerce = buildStoryMonetizationState(plainStory, req.user, entitlements);
 
-    if (isAdmin(req.user) || isOwner(plainStory, req.user)) {
-      return res.json({
-        unlocked: true,
-        balance: safeWalletBalance(user),
-      });
-    }
-
-    const purchasedStoryIds = safePurchasedStoryIds(user);
-    if (purchasedStoryIds.includes(req.params.storyId)) {
+    if (!storyCommerce.licensed) {
       return res.json({
         unlocked: true,
         balance: safeWalletBalance(user),
@@ -250,8 +291,17 @@ router.post(
       });
     }
 
+    if (storyCommerce.hasFullAccess) {
+      return res.json({
+        unlocked: true,
+        balance: safeWalletBalance(user),
+        coinBalance: safeCoinBalance(user),
+        rentalExpiresAt: storyCommerce.rentalExpiresAt,
+      });
+    }
+
     const paymentMethod = String(req.body.paymentMethod || PROVIDER_WALLET).toUpperCase();
-    const unlockPrice = normalizeLong(story.unlockPrice, 0);
+    const unlockPrice = normalizeCurrencyAmount(story.unlockPrice, 0);
     const coinPrice = calculateStoryCoinPrice(story);
 
     if (paymentMethod === PROVIDER_COINS) {
@@ -265,7 +315,10 @@ router.post(
       }
 
       user.coinBalance = currentCoins - coinPrice;
-      user.purchasedStoryIds = [...purchasedStoryIds, req.params.storyId];
+      user.purchasedStoryIds = appendUniqueIds(
+        safePurchasedStoryIds(user),
+        [req.params.storyId],
+      );
       await user.save();
 
       await PaymentTransaction.create({
@@ -301,7 +354,10 @@ router.post(
     }
 
     user.walletBalance = currentBalance - unlockPrice;
-    user.purchasedStoryIds = [...purchasedStoryIds, req.params.storyId];
+    user.purchasedStoryIds = appendUniqueIds(
+      safePurchasedStoryIds(user),
+      [req.params.storyId],
+    );
     await user.save();
 
     await PaymentTransaction.create({
@@ -323,6 +379,354 @@ router.post(
       balance: safeWalletBalance(user),
       coinBalance: safeCoinBalance(user),
       paymentMethod: PROVIDER_WALLET,
+    });
+  }),
+);
+
+router.post(
+  "/chapters/:chapterId/unlock",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const [user, chapter] = await Promise.all([
+      getCurrentUserDocument(req),
+      Chapter.findById(req.params.chapterId),
+    ]);
+    ensureRewardState(user);
+
+    if (!chapter) {
+      return res.status(400).json(buildMessage("Loi: Khong tim thay chuong."));
+    }
+
+    const story = await Story.findById(chapter.storyId);
+    if (!story) {
+      return res.status(400).json(buildMessage("Loi: Khong tim thay truyen."));
+    }
+
+    const plainStory = serializeDoc(story);
+    if (!canViewStory(plainStory, req.user)) {
+      return res.status(404).json(buildMessage("Loi: Khong tim thay truyen."));
+    }
+
+    const entitlements = buildUserEntitlements(user);
+    const access = resolveChapterAccess(chapter, plainStory, req.user, entitlements);
+
+    if (access.canRead) {
+      return res.json({
+        unlocked: true,
+        balance: safeWalletBalance(user),
+        coinBalance: safeCoinBalance(user),
+      });
+    }
+
+    if (!access.accessPrice || access.accessMode === "FREE") {
+      return res.status(400).json({
+        message: "Chuong nay khong ho tro mo khoa rieng.",
+      });
+    }
+
+    const currentBalance = safeWalletBalance(user);
+    if (currentBalance < access.accessPrice) {
+      return res.status(402).json({
+        message: "So du khong du de mo khoa chuong nay.",
+        balance: currentBalance,
+        requiredAmount: access.accessPrice,
+      });
+    }
+
+    user.walletBalance = currentBalance - access.accessPrice;
+    user.purchasedChapterIds = appendUniqueIds(
+      safePurchasedChapterIds(user),
+      [req.params.chapterId],
+    );
+    await user.save();
+
+    await PaymentTransaction.create({
+      userId: user.id,
+      storyId: String(story._id),
+      chapterId: req.params.chapterId,
+      type: TYPE_UNLOCK_CHAPTER,
+      provider: PROVIDER_WALLET,
+      status: STATUS_COMPLETED,
+      amount: access.accessPrice,
+      orderId: buildCompactId("unlock_chapter"),
+      requestId: buildCompactId("unlock_chapter_req"),
+      message:
+        access.accessMode === "EARLY_ACCESS"
+          ? "Mo khoa chuong early access thanh cong."
+          : "Mo khoa chuong thanh cong.",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    res.json({
+      unlocked: true,
+      balance: safeWalletBalance(user),
+      coinBalance: safeCoinBalance(user),
+      chapterId: req.params.chapterId,
+    });
+  }),
+);
+
+router.post(
+  "/stories/:storyId/chapter-bundles/unlock",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const [user, story, chapters] = await Promise.all([
+      getCurrentUserDocument(req),
+      Story.findById(req.params.storyId),
+      Chapter.find({ storyId: req.params.storyId }).lean(),
+    ]);
+    ensureRewardState(user);
+
+    if (!story) {
+      return res.status(400).json(buildMessage("Loi: Khong tim thay truyen."));
+    }
+
+    const plainStory = serializeDoc(story);
+    if (!canViewStory(plainStory, req.user)) {
+      return res.status(404).json(buildMessage("Loi: Khong tim thay truyen."));
+    }
+
+    const entitlements = buildUserEntitlements(user);
+    if (hasStoryFullAccess(plainStory, req.user, entitlements)) {
+      return res.json({
+        unlocked: true,
+        balance: safeWalletBalance(user),
+        coinBalance: safeCoinBalance(user),
+      });
+    }
+
+    const visibleChapters = chapters.filter((chapter) => isApprovedStatus(chapter.approvalStatus));
+    const bundleOffer = findBundleOfferByChapterIds(
+      plainStory,
+      visibleChapters,
+      req.body.chapterIds,
+    );
+
+    if (!bundleOffer) {
+      return res.status(400).json({
+        message: "Combo chuong khong hop le hoac da thay doi.",
+      });
+    }
+
+    const chapterIdsToGrant = bundleOffer.chapterIds.filter(
+      (chapterId) => !entitlements.purchasedChapterIds.has(chapterId),
+    );
+
+    if (chapterIdsToGrant.length === 0) {
+      return res.json({
+        unlocked: true,
+        balance: safeWalletBalance(user),
+        coinBalance: safeCoinBalance(user),
+        chapterIds: bundleOffer.chapterIds,
+      });
+    }
+
+    const currentBalance = safeWalletBalance(user);
+    if (currentBalance < bundleOffer.price) {
+      return res.status(402).json({
+        message: "So du khong du de mua combo chuong nay.",
+        balance: currentBalance,
+        requiredAmount: bundleOffer.price,
+      });
+    }
+
+    user.walletBalance = currentBalance - bundleOffer.price;
+    user.purchasedChapterIds = appendUniqueIds(
+      safePurchasedChapterIds(user),
+      chapterIdsToGrant,
+    );
+    await user.save();
+
+    await PaymentTransaction.create({
+      userId: user.id,
+      storyId: req.params.storyId,
+      chapterIds: chapterIdsToGrant,
+      type: TYPE_UNLOCK_CHAPTER_BUNDLE,
+      provider: PROVIDER_WALLET,
+      status: STATUS_COMPLETED,
+      amount: bundleOffer.price,
+      orderId: buildCompactId("unlock_bundle"),
+      requestId: buildCompactId("unlock_bundle_req"),
+      message: `Mo khoa ${bundleOffer.title} thanh cong.`,
+      metadata: {
+        bundleId: bundleOffer.id,
+        chapterCount: bundleOffer.chapterCount,
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    res.json({
+      unlocked: true,
+      balance: safeWalletBalance(user),
+      coinBalance: safeCoinBalance(user),
+      chapterIds: chapterIdsToGrant,
+      bundleId: bundleOffer.id,
+    });
+  }),
+);
+
+router.post(
+  "/stories/:storyId/rent",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const [user, story] = await Promise.all([
+      getCurrentUserDocument(req),
+      Story.findById(req.params.storyId),
+    ]);
+    ensureRewardState(user);
+
+    if (!story) {
+      return res.status(400).json(buildMessage("Loi: Khong tim thay truyen."));
+    }
+
+    const plainStory = serializeDoc(story);
+    if (!canViewStory(plainStory, req.user)) {
+      return res.status(404).json(buildMessage("Loi: Khong tim thay truyen."));
+    }
+
+    const entitlements = buildUserEntitlements(user);
+    const storyCommerce = buildStoryMonetizationState(plainStory, req.user, entitlements);
+
+    if (!storyCommerce.rentalEnabled) {
+      return res.status(400).json({
+        message: "Truyen nay khong ho tro thue 7 ngay.",
+      });
+    }
+
+    if (storyCommerce.hasFullAccess) {
+      return res.json({
+        rented: true,
+        balance: safeWalletBalance(user),
+        coinBalance: safeCoinBalance(user),
+        expiresAt: storyCommerce.rentalExpiresAt,
+      });
+    }
+
+    const currentBalance = safeWalletBalance(user);
+    if (currentBalance < storyCommerce.rentalPrice) {
+      return res.status(402).json({
+        message: "So du khong du de thue truyen nay.",
+        balance: currentBalance,
+        requiredAmount: storyCommerce.rentalPrice,
+      });
+    }
+
+    const expiresAt = new Date(
+      Date.now() + STORY_RENTAL_DURATION_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    user.walletBalance = currentBalance - storyCommerce.rentalPrice;
+    upsertStoryRentalAccess(user, req.params.storyId, expiresAt);
+    await user.save();
+
+    await PaymentTransaction.create({
+      userId: user.id,
+      storyId: req.params.storyId,
+      type: TYPE_RENT_STORY,
+      provider: PROVIDER_WALLET,
+      status: STATUS_COMPLETED,
+      amount: storyCommerce.rentalPrice,
+      expiresAt,
+      orderId: buildCompactId("rent_story"),
+      requestId: buildCompactId("rent_story_req"),
+      message: `Thue truyen ${STORY_RENTAL_DURATION_DAYS} ngay thanh cong.`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    res.json({
+      rented: true,
+      balance: safeWalletBalance(user),
+      coinBalance: safeCoinBalance(user),
+      expiresAt,
+      rentalDays: STORY_RENTAL_DURATION_DAYS,
+    });
+  }),
+);
+
+router.post(
+  "/stories/:storyId/support",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const [user, story] = await Promise.all([
+      getCurrentUserDocument(req),
+      Story.findById(req.params.storyId),
+    ]);
+    ensureRewardState(user);
+
+    if (!story) {
+      return res.status(400).json(buildMessage("Loi: Khong tim thay truyen."));
+    }
+
+    const plainStory = serializeDoc(story);
+    if (!canViewStory(plainStory, req.user)) {
+      return res.status(404).json(buildMessage("Loi: Khong tim thay truyen."));
+    }
+
+    if (!story.supportEnabled) {
+      return res.status(400).json({
+        message: "Truyen nay hien khong mo ung ho tac gia.",
+      });
+    }
+
+    if (isOwner(plainStory, req.user)) {
+      return res.status(400).json({
+        message: "Ban khong the tu ung ho chinh minh.",
+      });
+    }
+
+    const amount = normalizeCurrencyAmount(req.body.amount, 0);
+    if (amount < 1000) {
+      return res.status(400).json({
+        message: "So tien ung ho toi thieu la 1.000 VND.",
+      });
+    }
+
+    const currentBalance = safeWalletBalance(user);
+    if (currentBalance < amount) {
+      return res.status(402).json({
+        message: "So du khong du de ung ho tac gia.",
+        balance: currentBalance,
+        requiredAmount: amount,
+      });
+    }
+
+    const author = story.uploaderId ? await User.findById(story.uploaderId) : null;
+
+    user.walletBalance = currentBalance - amount;
+    story.supportTotalAmount = normalizeCurrencyAmount(story.supportTotalAmount, 0) + amount;
+    story.supportCount = normalizeCurrencyAmount(story.supportCount, 0) + 1;
+
+    if (author) {
+      author.walletBalance = safeWalletBalance(author) + amount;
+      await Promise.all([user.save(), story.save(), author.save()]);
+    } else {
+      await Promise.all([user.save(), story.save()]);
+    }
+
+    await PaymentTransaction.create({
+      userId: user.id,
+      targetUserId: story.uploaderId || null,
+      storyId: req.params.storyId,
+      type: TYPE_SUPPORT_AUTHOR,
+      provider: PROVIDER_WALLET,
+      status: STATUS_COMPLETED,
+      amount,
+      orderId: buildCompactId("support_story"),
+      requestId: buildCompactId("support_story_req"),
+      message: "Ung ho tac gia thanh cong.",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    res.json({
+      supported: true,
+      balance: safeWalletBalance(user),
+      coinBalance: safeCoinBalance(user),
+      supportTotalAmount: story.supportTotalAmount,
+      supportCount: story.supportCount,
     });
   }),
 );
