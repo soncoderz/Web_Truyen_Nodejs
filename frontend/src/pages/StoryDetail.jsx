@@ -20,6 +20,7 @@ import {
   unsubscribeCommentTargets,
 } from '../services/realtime';
 import { calculateStoryCoinPrice } from '../utils/rewards';
+import { repairMojibakeText } from '../utils/textRepair';
 import { buildStoryReactionTarget } from '../utils/reactions';
 
 const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
@@ -1191,15 +1192,29 @@ export default function StoryDetail() {
             <ul className="chapter-list">
               {chapters.map(ch => (
                 <li key={ch.id} className="chapter-item" style={{ alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 320px', minWidth: 0 }}>
                   {ch.canRead ? (
                     <Link to={`/story/${id}/chapter/${ch.id}`} className="chapter-title" style={{ textDecoration: 'none', color: 'inherit' }}>
-                      Chương {ch.chapterNumber}: {ch.title}
+                      Chương {ch.chapterNumber}: {repairMojibakeText(ch.title || '')}
                     </Link>
                   ) : (
                     <span className="chapter-title" style={{ color: 'var(--text-secondary)', cursor: 'not-allowed' }}>
-                      Chương {ch.chapterNumber}: {ch.title}
+                      Chương {ch.chapterNumber}: {repairMojibakeText(ch.title || '')}
                     </span>
                   )}
+                    {String(ch.summary || '').trim() && (
+                      <p
+                        style={{
+                          margin: '0.4rem 0 0',
+                          color: 'var(--text-secondary)',
+                          fontSize: '0.88rem',
+                          lineHeight: 1.55,
+                        }}
+                      >
+                        {repairMojibakeText(ch.summary || '')}
+                      </p>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginLeft: 'auto' }}>
                     <span
                       className="status-badge"

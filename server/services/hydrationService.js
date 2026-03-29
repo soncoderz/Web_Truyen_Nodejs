@@ -71,6 +71,7 @@ function serializeChapterListItem(chapter, extra = {}) {
     storyId: plainChapter.storyId,
     chapterNumber: plainChapter.chapterNumber,
     title: plainChapter.title,
+    summary: plainChapter.summary || null,
     accessMode: plainChapter.accessMode || "FREE",
     accessPrice: plainChapter.accessPrice || 0,
     createdAt: plainChapter.createdAt,

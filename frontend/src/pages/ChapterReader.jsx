@@ -1126,6 +1126,10 @@ export default function ChapterReader() {
     () => repairMojibakeText(chapter?.title || ''),
     [chapter?.title],
   );
+  const displayChapterSummary = useMemo(
+    () => repairMojibakeText(chapter?.summary || '').trim(),
+    [chapter?.summary],
+  );
   const paragraphBlocks = useMemo(
     () => (
       isManga
@@ -2079,6 +2083,25 @@ export default function ChapterReader() {
           background: isManga ? 'var(--badge-manga-bg)' : 'var(--badge-novel-bg)',
           color: isManga ? 'var(--warning)' : 'var(--accent)',
         }}>{isManga ? 'Truyện Tranh' : 'Light Novel'}</span>
+        {displayChapterSummary && (
+          <p
+            style={{
+              margin: '0.9rem auto 0',
+              maxWidth: '720px',
+              padding: '0.85rem 1rem',
+              borderRadius: '14px',
+              background: 'linear-gradient(180deg, var(--bg-card), var(--bg-secondary))',
+              border: '1px solid var(--border)',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.6,
+              fontSize: '0.94rem',
+              textAlign: 'left',
+              boxShadow: 'var(--shadow)',
+            }}
+          >
+            {displayChapterSummary}
+          </p>
+        )}
         {typeof chapterPresenceCount === 'number' && (
           <div className="chapter-presence-chip">
             <span className="chapter-presence-dot" />

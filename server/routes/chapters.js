@@ -24,6 +24,11 @@ const {
 } = require("../utils/permissions");
 const { isObjectId } = require("../utils/normalize");
 const { serializeChapterListItem } = require("../services/hydrationService");
+const {
+  buildDisplaySummary,
+  generateSummary,
+  normalizeSummary,
+} = require("../services/chapterSummaryService");
 const httpError = require("../utils/httpError");
 
 const router = express.Router();
@@ -286,6 +291,15 @@ router.get(
         : res.status(404).json(buildMessage("Lá»—i: KhĂ´ng tĂ¬m tháº¥y chÆ°Æ¡ng!"));
     }
 
+    const storedSummary = normalizeSummary(chapter.summary) || "";
+    const displaySummary = await buildDisplaySummary(plainStory, chapter);
+    chapter.summary = displaySummary;
+
+    if (displaySummary && displaySummary !== storedSummary) {
+      chapter.updatedAt = new Date();
+      await chapter.save();
+    }
+
     res.json(serializeDoc(chapter));
   }),
 );
@@ -328,6 +342,7 @@ router.post(
       updatedAt: new Date(),
     });
 
+    chapter.summary = await generateSummary(story, chapter);
     applyChapterAccessRequest(chapter, req.body, admin);
     const pricingError = validateChapterPricing(chapter);
     if (pricingError) {
@@ -380,6 +395,7 @@ router.put(
     chapter.content = req.body.content || null;
     chapter.chapterNumber = Number(req.body.chapterNumber);
     chapter.pages = Array.isArray(req.body.pages) ? req.body.pages : [];
+    chapter.summary = await generateSummary(story, chapter);
     chapter.updatedAt = new Date();
     applyChapterAccessRequest(chapter, req.body, isAdmin(req.user));
     const pricingError = validateChapterPricing(chapter);
