@@ -194,6 +194,9 @@ export const getUnreadCount = () => api.get("/notifications/unread-count");
 export const markAsRead = (id) => api.put(`/notifications/${id}/read`);
 export const markAllAsRead = () => api.put("/notifications/read-all");
 
+// Daily Check-in
+export const dailyCheckIn = () => api.post("/checkin");
+
 // Reports
 export const createReport = (data) => api.post("/reports", data);
 export const getReports = () => api.get("/reports");
