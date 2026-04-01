@@ -15,10 +15,7 @@ function createApp() {
   app.use(requestLogger);
   app.use(optionalAuth);
 
-  app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", runtime: "node" });
-  });
-
+  app.use("/api", require("./routes/system"));
   app.use("/api/auth", require("./routes/auth"));
   app.use("/api/stories", require("./routes/stories"));
   app.use("/api/categories", require("./routes/categories"));

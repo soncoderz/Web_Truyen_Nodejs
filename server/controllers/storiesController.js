@@ -1,0 +1,673 @@
+const Author = require("../models/author");
+const Bookmark = require("../models/bookmark");
+const Category = require("../models/category");
+const Chapter = require("../models/chapter");
+const Story = require("../models/story");
+const asyncHandler = require("../utils/asyncHandler");
+const { getCurrentUserDocument } = require("../utils/currentUser");
+const { createDbRef, extractDbRefIds } = require("../utils/dbRefs");
+const { buildMessage, serializeDoc } = require("../utils/serialize");
+const {
+  canManageStory,
+  canViewStory,
+  isAdmin,
+  isApprovedStatus,
+} = require("../utils/permissions");
+const {
+  ensureArray,
+  hasText,
+  toObjectId,
+  uniqueStrings,
+} = require("../utils/normalize");
+const { hydrateStory, hydrateStories } = require("../services/hydrationService");
+const {
+  normalizeBundleSize,
+  normalizeCurrencyAmount,
+  normalizePercent,
+} = require("../services/monetizationService");
+const {
+  buildAiStoryRecommendations,
+} = require("../services/storyAiRecommendationService");
+const { attachStoryChapterStats } = require("../services/storySignalService");
+const httpError = require("../utils/httpError");
+
+function approvedStoryQuery() {
+  return {
+    $or: [
+      { approvalStatus: "APPROVED" },
+      { approvalStatus: { $exists: false } },
+      { approvalStatus: null },
+    ],
+  };
+}
+
+function buildApprovalQuery(approvalStatus) {
+  if (!hasText(approvalStatus)) {
+    return {};
+  }
+
+  if (String(approvalStatus).toUpperCase() === "APPROVED") {
+    return approvedStoryQuery();
+  }
+
+  return { approvalStatus: String(approvalStatus).toUpperCase() };
+}
+
+function normalizeUnlockPrice(value) {
+  return normalizeCurrencyAmount(value, 0);
+}
+
+function validateStoryPricing(story) {
+  if (story.licensed && Number(story.unlockPrice || 0) <= 0) {
+    return "Lá»—i: Truyá»‡n cÃ³ báº£n quyá»n pháº£i cÃ³ giÃ¡ má»Ÿ khÃ³a lá»›n hÆ¡n 0.";
+  }
+
+  if (story.rentalEnabled && Number(story.rentalPrice || 0) <= 0) {
+    return "Loi: Thue truyen 7 ngay phai co gia lon hon 0.";
+  }
+
+  if (story.chapterBundleEnabled && Number(story.chapterBundleSize || 0) < 2) {
+    return "Loi: Combo chuong phai co it nhat 2 chuong.";
+  }
+
+  return null;
+}
+
+async function resolveCategories(categoryIds) {
+  const ids = uniqueStrings(categoryIds);
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const categories = await Category.find({ _id: { $in: ids } }).lean();
+  if (categories.length !== ids.length) {
+    throw httpError(500, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y thá»ƒ loáº¡i.");
+  }
+
+  return ids.map((id) => createDbRef("categories", id));
+}
+
+async function resolveAuthors(authorIds) {
+  const ids = uniqueStrings(authorIds);
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const authors = await Author.find({ _id: { $in: ids } }).lean();
+  if (authors.length !== ids.length) {
+    throw httpError(500, "Error: Author is not found.");
+  }
+
+  return ids.map((id) => createDbRef("authors", id));
+}
+
+function markPending(story) {
+  story.approvalStatus = "PENDING";
+  story.reviewedAt = null;
+  story.reviewedById = null;
+  story.reviewedByUsername = null;
+  story.reviewNote = null;
+}
+
+function markReviewed(story, approvalStatus, reviewer, reviewNote) {
+  story.approvalStatus = String(approvalStatus || "APPROVED").toUpperCase();
+  story.reviewedAt = new Date();
+  story.reviewedById = reviewer.id;
+  story.reviewedByUsername = reviewer.username;
+  story.reviewNote = hasText(reviewNote) ? String(reviewNote).trim() : null;
+}
+
+async function applyStoryRequest(story, request, createMode, allowPricingChanges) {
+  story.title = request.title;
+  story.description = request.description || null;
+
+  if (request.coverImage !== undefined || createMode) {
+    story.coverImage = request.coverImage || null;
+  }
+
+  if (request.status !== undefined && request.status !== null) {
+    story.status = request.status;
+  }
+
+  if (request.type !== undefined && request.type !== null) {
+    story.type = request.type;
+  }
+
+  if (allowPricingChanges) {
+    if (request.licensed !== undefined || createMode) {
+      story.licensed = Boolean(request.licensed);
+    }
+
+    if (request.unlockPrice !== undefined || createMode || !Boolean(story.licensed)) {
+      story.unlockPrice = story.licensed ? normalizeUnlockPrice(request.unlockPrice) : 0;
+    }
+
+    if (request.rentalEnabled !== undefined || createMode) {
+      story.rentalEnabled = Boolean(request.rentalEnabled);
+    }
+
+    if (
+      request.rentalPrice !== undefined ||
+      createMode ||
+      !Boolean(story.rentalEnabled)
+    ) {
+      story.rentalPrice = story.rentalEnabled
+        ? normalizeCurrencyAmount(request.rentalPrice, 0)
+        : 0;
+    }
+
+    if (request.chapterBundleEnabled !== undefined || createMode) {
+      story.chapterBundleEnabled = Boolean(request.chapterBundleEnabled);
+    }
+
+    if (
+      request.chapterBundleSize !== undefined ||
+      createMode ||
+      !Boolean(story.chapterBundleEnabled)
+    ) {
+      story.chapterBundleSize = story.chapterBundleEnabled
+        ? normalizeBundleSize(request.chapterBundleSize, 3)
+        : 3;
+    }
+
+    if (
+      request.chapterBundleDiscountPercent !== undefined ||
+      createMode ||
+      !Boolean(story.chapterBundleEnabled)
+    ) {
+      story.chapterBundleDiscountPercent = story.chapterBundleEnabled
+        ? normalizePercent(request.chapterBundleDiscountPercent, 15)
+        : 15;
+    }
+
+    if (request.supportEnabled !== undefined || createMode) {
+      story.supportEnabled = Boolean(request.supportEnabled);
+    }
+  } else if (createMode) {
+    story.licensed = false;
+    story.unlockPrice = 0;
+    story.rentalEnabled = false;
+    story.rentalPrice = 0;
+    story.chapterBundleEnabled = false;
+    story.chapterBundleSize = 3;
+    story.chapterBundleDiscountPercent = 15;
+    story.supportEnabled = false;
+  }
+
+  if (request.relatedStoryIds !== undefined) {
+    story.relatedStoryIds = uniqueStrings(request.relatedStoryIds);
+  } else if (createMode) {
+    story.relatedStoryIds = [];
+  }
+
+  if (request.categoryIds !== undefined) {
+    story.categories = await resolveCategories(request.categoryIds);
+  } else if (createMode) {
+    story.categories = [];
+  }
+
+  if (request.authorIds !== undefined) {
+    story.authors = await resolveAuthors(request.authorIds);
+  } else if (createMode) {
+    story.authors = [];
+  }
+}
+
+async function findStoriesByIds(ids) {
+  const results = [];
+  for (const id of uniqueStrings(ids)) {
+    const story = await Story.findById(id).lean();
+    if (story) {
+      results.push(story);
+    }
+  }
+  return results;
+}
+
+const listStories = asyncHandler(async (_req, res) => {
+  const stories = await Story.find(approvedStoryQuery())
+    .sort({ updatedAt: -1 })
+    .lean();
+  res.json(await hydrateStories(stories));
+});
+
+const listManageStories = asyncHandler(async (req, res) => {
+  const stories = await Story.find(buildApprovalQuery(req.query.approvalStatus))
+    .sort({ updatedAt: -1 })
+    .lean();
+  res.json(await hydrateStories(stories));
+});
+
+const listMyStories = asyncHandler(async (req, res) => {
+  const user = await getCurrentUserDocument(req);
+  const stories = await Story.find({ uploaderId: user.id })
+    .sort({ updatedAt: -1 })
+    .lean();
+  res.json(await hydrateStories(stories));
+});
+
+const listReviewStories = asyncHandler(async (req, res) => {
+  const stories = await Story.find(
+    buildApprovalQuery(req.query.approvalStatus || "PENDING"),
+  )
+    .sort({ updatedAt: -1 })
+    .lean();
+  res.json(await hydrateStories(stories));
+});
+
+const listTrendingStories = asyncHandler(async (req, res) => {
+  const stories = await Story.find(approvedStoryQuery())
+    .sort({ views: -1 })
+    .limit(Number(req.query.limit || 10))
+    .lean();
+  res.json(await hydrateStories(stories));
+});
+
+const listNewReleaseStories = asyncHandler(async (req, res) => {
+  const stories = await Story.find(approvedStoryQuery())
+    .sort({ updatedAt: -1 })
+    .limit(Number(req.query.limit || 10))
+    .lean();
+  res.json(await hydrateStories(stories));
+});
+
+const listLicensedStories = asyncHandler(async (req, res) => {
+  const stories = await Story.find({
+    ...approvedStoryQuery(),
+    licensed: true,
+    unlockPrice: { $gt: 0 },
+  })
+    .sort({ updatedAt: -1 })
+    .limit(Number(req.query.limit || 10))
+    .lean();
+  res.json(await hydrateStories(stories));
+});
+
+const listHotStories = asyncHandler(async (req, res) => {
+  const limit = Number(req.query.limit || 10);
+  const [topByViews, topByRating] = await Promise.all([
+    Story.find(approvedStoryQuery()).sort({ views: -1 }).limit(limit).lean(),
+    Story.find(approvedStoryQuery())
+      .sort({ averageRating: -1 })
+      .limit(limit)
+      .lean(),
+  ]);
+
+  res.json({
+    topByViews: await hydrateStories(topByViews),
+    topByRating: await hydrateStories(topByRating),
+  });
+});
+
+const listRecommendations = asyncHandler(async (req, res) => {
+  const limit = Number(req.query.limit || 10);
+  const userId = hasText(req.query.userId) ? String(req.query.userId) : null;
+
+  if (userId) {
+    const bookmarks = await Bookmark.find({ userId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (bookmarks.length > 0) {
+      const bookmarkedStoryIds = uniqueStrings(bookmarks.map((item) => item.storyId));
+      const bookmarkedStories = await findStoriesByIds(bookmarkedStoryIds);
+      const categoryIds = Array.from(
+        new Set(bookmarkedStories.flatMap((story) => extractDbRefIds(story.categories))),
+      );
+
+      if (categoryIds.length > 0) {
+        const recommendedStories = await Story.find({
+          ...approvedStoryQuery(),
+          "categories.$id": {
+            $in: categoryIds.map(toObjectId).filter(Boolean),
+          },
+          _id: {
+            $nin: bookmarkedStoryIds.map(toObjectId).filter(Boolean),
+          },
+        })
+          .sort({ averageRating: -1 })
+          .limit(limit)
+          .lean();
+
+        if (recommendedStories.length > 0) {
+          return res.json(await hydrateStories(recommendedStories));
+        }
+      }
+    }
+  }
+
+  const fallbackStories = await Story.find(approvedStoryQuery())
+    .sort({ averageRating: -1 })
+    .limit(limit)
+    .lean();
+  return res.json(await hydrateStories(fallbackStories));
+});
+
+const listFollowedStories = asyncHandler(async (req, res) => {
+  const user = await getCurrentUserDocument(req);
+  const stories = await findStoriesByIds(user.followedStoryIds || []);
+  const visibleStories = stories.filter((story) => isApprovedStatus(story.approvalStatus));
+  res.json(await hydrateStories(visibleStories));
+});
+
+const searchStories = asyncHandler(async (req, res) => {
+  const query = {
+    ...approvedStoryQuery(),
+  };
+
+  if (hasText(req.query.keyword)) {
+    query.$and = query.$and || [];
+    query.$and.push({
+      $or: [
+        { title: { $regex: String(req.query.keyword), $options: "i" } },
+        { description: { $regex: String(req.query.keyword), $options: "i" } },
+      ],
+    });
+  }
+
+  if (hasText(req.query.categoryId)) {
+    const categoryId = toObjectId(req.query.categoryId);
+    query.$and = query.$and || [];
+    query.$and.push({
+      "categories.$id": categoryId,
+    });
+  }
+
+  if (hasText(req.query.status)) {
+    query.status = String(req.query.status).toUpperCase();
+  }
+
+  if (hasText(req.query.type)) {
+    query.type = String(req.query.type).toUpperCase();
+  }
+
+  const stories = await Story.find(query).sort({ updatedAt: -1 }).lean();
+  res.json(await hydrateStories(stories));
+});
+
+const createStory = asyncHandler(async (req, res) => {
+  const user = await getCurrentUserDocument(req);
+  const admin = isAdmin(req.user);
+
+  const story = new Story({
+    uploaderId: user.id,
+    uploaderUsername: user.username,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  await applyStoryRequest(story, req.body, true, admin);
+  const pricingError = validateStoryPricing(story);
+  if (pricingError) {
+    throw httpError(400, pricingError);
+  }
+
+  if (admin) {
+    markReviewed(story, "APPROVED", req.user, null);
+  } else {
+    markPending(story);
+  }
+
+  await story.save();
+  res.json(await hydrateStory(story));
+});
+
+const updateStory = asyncHandler(async (req, res) => {
+  const story = await Story.findById(req.params.id);
+  if (!story) {
+    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+  }
+
+  const user = await getCurrentUserDocument(req);
+  const admin = isAdmin(req.user);
+  if (!canManageStory(serializeDoc(story), req.user)) {
+    throw httpError(403, "Error: You do not have permission thÃ nh update this story.");
+  }
+
+  await applyStoryRequest(story, req.body, false, admin);
+  const pricingError = validateStoryPricing(story);
+  if (pricingError) {
+    throw httpError(400, pricingError);
+  }
+
+  story.updatedAt = new Date();
+  if (admin) {
+    markReviewed(story, "APPROVED", req.user, null);
+  } else {
+    markPending(story);
+    story.uploaderId = user.id;
+    story.uploaderUsername = user.username;
+  }
+
+  await story.save();
+  res.json(await hydrateStory(story));
+});
+
+const updateStoryApproval = asyncHandler(async (req, res) => {
+  const story = await Story.findById(req.params.id);
+  if (!story) {
+    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+  }
+
+  story.updatedAt = new Date();
+  markReviewed(story, req.body.approvalStatus, req.user, req.body.reviewNote);
+  await story.save();
+
+  res.json(await hydrateStory(story));
+});
+
+const deleteStory = asyncHandler(async (req, res) => {
+  const story = await Story.findById(req.params.id);
+  if (!story) {
+    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+  }
+
+  if (!canManageStory(serializeDoc(story), req.user)) {
+    throw httpError(403, "Error: You do not have permission thÃ nh delete this story.");
+  }
+
+  await Chapter.deleteMany({ storyId: String(story._id) });
+  await story.deleteOne();
+  res.json(buildMessage("ÄÃ£ xÃ³a truyá»‡n thÃ nh cÃ´ng!"));
+});
+
+const incrementStoryViews = asyncHandler(async (req, res) => {
+  const story = await Story.findById(req.params.id);
+  if (!story) {
+    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+  }
+
+  if (!isApprovedStatus(story.approvalStatus)) {
+    throw httpError(400, "Lá»—i: Truyá»‡n hiá»‡n khÃ´ng kháº£ dá»¥ng!");
+  }
+
+  story.views = Number(story.views || 0) + 1;
+  await story.save();
+  res.json(await hydrateStory(story));
+});
+
+const toggleFollowStory = asyncHandler(async (req, res) => {
+  const [user, story] = await Promise.all([
+    getCurrentUserDocument(req),
+    Story.findById(req.params.id),
+  ]);
+
+  if (!story) {
+    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n hoáº·c ngÆ°á»i dÃ¹ng!");
+  }
+
+  if (!isApprovedStatus(story.approvalStatus)) {
+    throw httpError(400, "Lá»—i: Truyá»‡n hiá»‡n khÃ´ng kháº£ dá»¥ng!");
+  }
+
+  user.followedStoryIds = ensureArray(user.followedStoryIds);
+  const storyId = String(story._id);
+  const isFollowing = user.followedStoryIds.includes(storyId);
+
+  if (isFollowing) {
+    user.followedStoryIds = user.followedStoryIds.filter((id) => id !== storyId);
+    story.followers = Math.max(0, Number(story.followers || 0) - 1);
+  } else {
+    user.followedStoryIds.push(storyId);
+    story.followers = Number(story.followers || 0) + 1;
+  }
+
+  await Promise.all([user.save(), story.save()]);
+  res.json({
+    isFollowing: !isFollowing,
+    followers: story.followers,
+  });
+});
+
+const getIsFollowingStory = asyncHandler(async (req, res) => {
+  const user = await getCurrentUserDocument(req);
+  res.json({
+    isFollowing: ensureArray(user.followedStoryIds).includes(req.params.id),
+  });
+});
+
+const listRelatedStories = asyncHandler(async (req, res) => {
+  const story = await Story.findById(req.params.id);
+  if (!story) {
+    return res.json([]);
+  }
+
+  const plainStory = serializeDoc(story);
+  if (!canViewStory(plainStory, req.user)) {
+    return res.json([]);
+  }
+
+  const relatedStories = await findStoriesByIds(story.relatedStoryIds || []);
+  res.json(relatedStories.filter((item) => canViewStory(item, req.user)));
+});
+
+const listStoryAiRecommendations = asyncHandler(async (req, res) => {
+  const limit = Math.max(1, Math.min(Number(req.query.limit || 6), 12));
+  const story = await Story.findById(req.params.id);
+  if (!story) {
+    return res.json([]);
+  }
+
+  const hydratedStory = await hydrateStory(story);
+  if (!canViewStory(hydratedStory, req.user)) {
+    return res.json([]);
+  }
+
+  const categoryIds = extractDbRefIds(story.categories)
+    .map((value) => toObjectId(value))
+    .filter(Boolean);
+  const authorIds = extractDbRefIds(story.authors)
+    .map((value) => toObjectId(value))
+    .filter(Boolean);
+  const targetedCandidateLimit = Math.max(limit * 14, 60);
+  const fallbackCandidateLimit = Math.max(limit * 20, 120);
+
+  const [
+    categoryMatchedStories,
+    authorMatchedStories,
+    candidateStories,
+    manuallyRelatedStories,
+  ] = await Promise.all([
+    categoryIds.length > 0
+      ? Story.find({
+          ...approvedStoryQuery(),
+          _id: { $ne: story._id },
+          "categories.$id": { $in: categoryIds },
+        })
+          .sort({ followers: -1, averageRating: -1, views: -1, updatedAt: -1 })
+          .limit(targetedCandidateLimit)
+          .lean()
+      : Promise.resolve([]),
+    authorIds.length > 0
+      ? Story.find({
+          ...approvedStoryQuery(),
+          _id: { $ne: story._id },
+          "authors.$id": { $in: authorIds },
+        })
+          .sort({ followers: -1, averageRating: -1, views: -1, updatedAt: -1 })
+          .limit(targetedCandidateLimit)
+          .lean()
+      : Promise.resolve([]),
+    Story.find({
+      ...approvedStoryQuery(),
+      _id: { $ne: story._id },
+    })
+      .sort({ followers: -1, averageRating: -1, views: -1, updatedAt: -1 })
+      .limit(fallbackCandidateLimit)
+      .lean(),
+    findStoriesByIds(story.relatedStoryIds || []),
+  ]);
+
+  const candidateMap = new Map();
+  manuallyRelatedStories.forEach((item) => {
+    candidateMap.set(String(item?._id || item?.id || ""), item);
+  });
+  authorMatchedStories.forEach((item) => {
+    candidateMap.set(String(item?._id || item?.id || ""), item);
+  });
+  categoryMatchedStories.forEach((item) => {
+    candidateMap.set(String(item?._id || item?.id || ""), item);
+  });
+  candidateStories.forEach((item) => {
+    candidateMap.set(String(item?._id || item?.id || ""), item);
+  });
+
+  const hydratedCandidates = await hydrateStories(Array.from(candidateMap.values()));
+  const visibleCandidates = hydratedCandidates.filter((item) =>
+    canViewStory(item, req.user),
+  );
+  const enrichedStories = await attachStoryChapterStats([
+    hydratedStory,
+    ...visibleCandidates,
+  ]);
+  const baseStory =
+    enrichedStories.find((item) => item.id === hydratedStory.id) || hydratedStory;
+  const enrichedCandidates = enrichedStories.filter(
+    (item) => item.id !== hydratedStory.id,
+  );
+
+  res.json(buildAiStoryRecommendations(baseStory, enrichedCandidates, { limit }));
+});
+
+const getStoryById = asyncHandler(async (req, res) => {
+  const optional = String(req.query.optional || "") === "1";
+  const story = await Story.findById(req.params.id);
+  if (!story) {
+    return optional
+      ? res.json(null)
+      : res.status(400).json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!"));
+  }
+
+  const hydrated = await hydrateStory(story);
+  if (!canViewStory(hydrated, req.user)) {
+    return optional
+      ? res.json(null)
+      : res.status(404).json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!"));
+  }
+
+  res.json(hydrated);
+});
+
+module.exports = {
+  listStories,
+  listManageStories,
+  listMyStories,
+  listReviewStories,
+  listTrendingStories,
+  listNewReleaseStories,
+  listLicensedStories,
+  listHotStories,
+  listRecommendations,
+  listFollowedStories,
+  searchStories,
+  createStory,
+  updateStory,
+  updateStoryApproval,
+  deleteStory,
+  incrementStoryViews,
+  toggleFollowStory,
+  getIsFollowingStory,
+  listRelatedStories,
+  listStoryAiRecommendations,
+  getStoryById,
+};
