@@ -68,7 +68,7 @@ function validateChapterPricing(chapter) {
     normalizeChapterAccessMode(chapter.accessMode) !== CHAPTER_ACCESS_MODES.FREE &&
     Number(chapter.accessPrice || 0) <= 0
   ) {
-    return "Loi: Chuong tinh phi hoac early access phai co gia lon hon 0.";
+    return "Lỗi: Chuong tinh phi hoac early access phải có giá lớn hơn 0.";
   }
 
   return null;
@@ -128,16 +128,16 @@ async function sendNewChapterNotifications(story, chapter) {
 
 const listManageStoryChapters = asyncHandler(async (req, res) => {
   if (!isObjectId(req.params.storyId)) {
-    throw httpError(400, "LÃ¡Â»â€”i: MÄ‚Â£ truyÃ¡Â»â€¡n khÄ‚Â´ng hÃ¡Â»Â£p lÃ¡Â»â€¡.");
+    throw httpError(400, "Lỗi: Mã truyện khÄ‚Â´ng hợp lệ.");
   }
 
   const story = await Story.findById(req.params.storyId).lean();
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "LÃ¡Â»â€”i: BÃ¡ÂºÂ¡n khÄ‚Â´ng cÄ‚Â³ quyÃ¡Â»Ân xem cÄ‚Â¡c chÃ†Â°Ã†Â¡ng nÄ‚Â y.");
+    throw httpError(403, "Lỗi: BáÂºÂ¡n khÄ‚Â´ng có quyáÂ»Ân xem các chương nÄ‚Â y.");
   }
 
   const chapters = await Chapter.find({ storyId: req.params.storyId })
@@ -215,20 +215,20 @@ const getChapterById = asyncHandler(async (req, res) => {
   if (!isObjectId(req.params.id)) {
     return optional
       ? res.json(null)
-      : res.status(400).json(buildMessage("LÃ¡Â»â€”i: MÄ‚Â£ chÃ†Â°Ã†Â¡ng khÄ‚Â´ng hÃ¡Â»Â£p lÃ¡Â»â€¡!"));
+      : res.status(400).json(buildMessage("Lỗi: Mã chương khÄ‚Â´ng hợp lệ!"));
   }
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
     return optional
       ? res.json(null)
-      : res.status(400).json(buildMessage("L?i: KhÃ´ng tÌm th?y chuong!"));
+      : res.status(400).json(buildMessage("L?i: Không tÌm th?y chuong!"));
   }
 
   const story = await Story.findById(chapter.storyId).lean();
   if (!story) {
     return optional
       ? res.json(null)
-      : res.status(400).json(buildMessage("L?i: KhÃ´ng tÌm th?y truy?n!"));
+      : res.status(400).json(buildMessage("L?i: Không tÌm th?y truy?n!"));
   }
 
   const plainStory = serializeDoc(story);
@@ -249,10 +249,10 @@ const getChapterById = asyncHandler(async (req, res) => {
       return res.status(402).json({
         message:
           access.lockReason === "EARLY_ACCESS_REQUIRED"
-            ? "Chuong nay dang o che do early access. Hay mua rieng chuong de doc ngay."
+            ? "Chuong nay dang o che do early access. Hay mua rieng chuong de doc ngày."
             : access.lockReason === "CHAPTER_PURCHASE_REQUIRED"
               ? "Chuong nay can mua rieng truoc khi doc."
-              : "Ban can mo khoa truyen nay truoc khi doc chuong.",
+              : "Ban can mở khóa truyen nay truoc khi doc chuong.",
         lockReason: access.lockReason,
         accessMode: access.accessMode,
         accessPrice: access.accessPrice,
@@ -261,12 +261,12 @@ const getChapterById = asyncHandler(async (req, res) => {
       });
       return res
         .status(402)
-        .json(buildMessage("LÃ¡Â»â€”i: HÄ‚Â£y mua truyÃ¡Â»â€¡n cÄ‚Â³ bÃ¡ÂºÂ£n quyÃ¡Â»Ân nÄ‚Â y trÃ†Â°Ã¡Â»â€ºc khi Ã„â€˜Ã¡Â»Âc."));
+        .json(buildMessage("Lỗi: Hãy mua truyện có báÂºÂ£n quyáÂ»Ân nÄ‚Â y trước khi Ã„â€˜áÂ»Âc."));
     }
 
     return optional
       ? res.json(null)
-      : res.status(404).json(buildMessage("LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y chÃ†Â°Ã†Â¡ng!"));
+      : res.status(404).json(buildMessage("Lỗi: Không tìm thấy chương!"));
   }
 
   const storedSummary = normalizeSummary(chapter.summary) || "";
@@ -292,15 +292,15 @@ const createChapter = asyncHandler(async (req, res) => {
   ]);
 
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "LÃ¡Â»â€”i: BÃ¡ÂºÂ¡n khÄ‚Â´ng cÄ‚Â³ quyÃ¡Â»Ân thÄ‚Âªm chÃ†Â°Ã†Â¡ng cho truyÃ¡Â»â€¡n nÄ‚Â y.");
+    throw httpError(403, "Lỗi: BáÂºÂ¡n khÄ‚Â´ng có quyáÂ»Ân thêm chương cho truyện nÄ‚Â y.");
   }
 
   if (existingChapter) {
-    throw httpError(400, "LÃ¡Â»â€”i: SÃ¡Â»â€˜ chÃ†Â°Ã†Â¡ng Ã„â€˜Ä‚Â£ tÃ¡Â»â€œn tÃ¡ÂºÂ¡i trong truyÃ¡Â»â€¡n nÄ‚Â y.");
+    throw httpError(400, "Lỗi: SáÂ»â€˜ chương Ã„â€˜Ä‚Â£ tồn tại trong truyện nÄ‚Â y.");
   }
 
   const admin = isAdmin(req.user);
@@ -340,16 +340,16 @@ const createChapter = asyncHandler(async (req, res) => {
 const updateChapter = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y chÃ†Â°Ã†Â¡ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy chương!");
   }
 
   const story = await Story.findById(chapter.storyId);
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "LÃ¡Â»â€”i: BÃ¡ÂºÂ¡n khÄ‚Â´ng cÄ‚Â³ quyÃ¡Â»Ân cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t chÃ†Â°Ã†Â¡ng nÄ‚Â y.");
+    throw httpError(403, "Lỗi: BáÂºÂ¡n khÄ‚Â´ng có quyáÂ»Ân cập nhật chương nÄ‚Â y.");
   }
 
   const existingChapter = await Chapter.findOne({
@@ -357,7 +357,7 @@ const updateChapter = asyncHandler(async (req, res) => {
     chapterNumber: Number(req.body.chapterNumber),
   });
   if (existingChapter && String(existingChapter._id) !== String(chapter._id)) {
-    throw httpError(400, "LÃ¡Â»â€”i: SÃ¡Â»â€˜ chÃ†Â°Ã†Â¡ng Ã„â€˜Ä‚Â£ tÃ¡Â»â€œn tÃ¡ÂºÂ¡i trong truyÃ¡Â»â€¡n nÄ‚Â y.");
+    throw httpError(400, "Lỗi: SáÂ»â€˜ chương Ã„â€˜Ä‚Â£ tồn tại trong truyện nÄ‚Â y.");
   }
 
   const previousStatus = chapter.approvalStatus;
@@ -394,12 +394,12 @@ const updateChapter = asyncHandler(async (req, res) => {
 const regenerateChapterSummary = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
-    throw httpError(400, "LÃƒÂ¡Ã‚Â»Ã¢â‚¬â€i: KhÃ„â€šÃ‚Â´ng tÃ„â€šÃ‚Â¬m thÃƒÂ¡Ã‚ÂºÃ‚Â¥y chÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng!");
+    throw httpError(400, "LÃƒÂ¡Ã‚Â»ââ‚¬â€i: KhÃ„â€šÃ‚Â´ng tÃ„â€šÃ‚Â¬m thÃƒÂ¡Ã‚ÂºÃ‚Â¥y chÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng!");
   }
 
   const story = await Story.findById(chapter.storyId).lean();
   if (!story) {
-    throw httpError(400, "LÃƒÂ¡Ã‚Â»Ã¢â‚¬â€i: KhÃ„â€šÃ‚Â´ng tÃ„â€šÃ‚Â¬m thÃƒÂ¡Ã‚ÂºÃ‚Â¥y truyÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡n!");
+    throw httpError(400, "LÃƒÂ¡Ã‚Â»ââ‚¬â€i: KhÃ„â€šÃ‚Â´ng tÃ„â€šÃ‚Â¬m thÃƒÂ¡Ã‚ÂºÃ‚Â¥y truyÃƒÂ¡Ã‚Â»ââ‚¬Â¡n!");
   }
 
   chapter.summary = await generateSummary(serializeDoc(story), chapter);
@@ -412,12 +412,12 @@ const regenerateChapterSummary = asyncHandler(async (req, res) => {
 const updateChapterApproval = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y chÃ†Â°Ã†Â¡ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy chương!");
   }
 
   const story = await Story.findById(chapter.storyId);
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   const previousStatus = chapter.approvalStatus;
@@ -439,20 +439,20 @@ const updateChapterApproval = asyncHandler(async (req, res) => {
 const deleteChapter = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y chÃ†Â°Ã†Â¡ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy chương!");
   }
 
   const story = await Story.findById(chapter.storyId);
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "LÃ¡Â»â€”i: BÃ¡ÂºÂ¡n khÄ‚Â´ng cÄ‚Â³ quyÃ¡Â»Ân xÄ‚Â³a chÃ†Â°Ã†Â¡ng nÄ‚Â y.");
+    throw httpError(403, "Lỗi: BáÂºÂ¡n khÄ‚Â´ng có quyáÂ»Ân xóa chương nÄ‚Â y.");
   }
 
   await chapter.deleteOne();
-  res.json(buildMessage("Ã„ÂÄ‚Â£ xÄ‚Â³a chÃ†Â°Ã†Â¡ng thÄ‚Â nh cÄ‚Â´ng!"));
+  res.json(buildMessage("Ã„ÂÄ‚Â£ xóa chương thành công!"));
 });
 
 module.exports = {

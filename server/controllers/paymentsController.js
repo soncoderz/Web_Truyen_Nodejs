@@ -201,21 +201,21 @@ const exchangeWalletToCoins = asyncHandler(async (req, res) => {
   if (amount < MIN_WALLET_TO_COINS_EXCHANGE_AMOUNT) {
     return res.status(400).json(
       buildMessage(
-        `Lá»—i: Sá»‘ tiá»n Ä‘á»•i tá»‘i thiá»ƒu lÃ  ${MIN_WALLET_TO_COINS_EXCHANGE_AMOUNT} VND.`,
+        `Lỗi: Sờ‘ tiờn đổi tối thiểu lÃ  ${MIN_WALLET_TO_COINS_EXCHANGE_AMOUNT} VND.`,
       ),
     );
   }
 
   if (amount % COIN_EXCHANGE_RATE !== 0) {
     return res.status(400).json(
-      buildMessage(`Lá»—i: Sá»‘ tiá»n Ä‘á»•i pháº£i chia háº¿t cho ${COIN_EXCHANGE_RATE} VND.`),
+      buildMessage(`Lỗi: Sờ‘ tiờn đổi phải chia hết cho ${COIN_EXCHANGE_RATE} VND.`),
     );
   }
 
   const currentBalance = safeWalletBalance(user);
   if (currentBalance < amount) {
     return res.status(402).json({
-      message: "Sá»‘ dÆ° khÃ´ng Ä‘á»§ Ä‘á»ƒ Ä‘á»•i sang xu.",
+      message: "Số dư không đủ để đổi sang xu.",
       balance: currentBalance,
       requiredAmount: amount,
     });
@@ -223,7 +223,7 @@ const exchangeWalletToCoins = asyncHandler(async (req, res) => {
 
   const coins = convertWalletAmountToCoins(amount);
   if (coins <= 0) {
-    return res.status(400).json(buildMessage("Lá»—i: Sá»‘ tiá»n Ä‘á»•i khÃ´ng há»£p lá»‡."));
+    return res.status(400).json(buildMessage("Lỗi: Sờ‘ tiờn đổi không hợp lệ."));
   }
 
   user.walletBalance = currentBalance - amount;
@@ -238,7 +238,7 @@ const exchangeWalletToCoins = asyncHandler(async (req, res) => {
     amount,
     orderId: buildCompactId("exchange"),
     requestId: buildCompactId("exchange_req"),
-    message: `ÄÃ£ Ä‘á»•i ${amount} VND thÃ nh ${coins} xu.`,
+    message: `Đã đổi ${amount} VND thành ${coins} xu.`,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -260,12 +260,12 @@ const unlockStory = asyncHandler(async (req, res) => {
   ensureRewardState(user);
 
   if (!story) {
-    return res.status(400).json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!"));
+    return res.status(400).json(buildMessage("Lỗi: Không tìm thấy truyện!"));
   }
 
   const plainStory = serializeDoc(story);
   if (!canViewStory(plainStory, req.user)) {
-    return res.status(404).json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!"));
+    return res.status(404).json(buildMessage("Lỗi: Không tìm thấy truyện!"));
   }
 
   const entitlements = buildUserEntitlements(user);
@@ -296,7 +296,7 @@ const unlockStory = asyncHandler(async (req, res) => {
     const currentCoins = safeCoinBalance(user);
     if (currentCoins < coinPrice) {
       return res.status(402).json({
-        message: "So xu khong du de mo khoa noi dung premium nay.",
+        message: "Số xu không đủ để mở khóa nội dung premium này.",
         coinBalance: currentCoins,
         requiredCoins: coinPrice,
       });
@@ -318,7 +318,7 @@ const unlockStory = asyncHandler(async (req, res) => {
       amount: coinPrice,
       orderId: buildCompactId("unlock_coin"),
       requestId: buildCompactId("unlock_coin_req"),
-      message: "Unlock story successfully with xu.",
+      message: "Mở khóa truyện thành công bằng xu.",
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -335,7 +335,7 @@ const unlockStory = asyncHandler(async (req, res) => {
   const currentBalance = safeWalletBalance(user);
   if (currentBalance < unlockPrice) {
     return res.status(402).json({
-      message: "Sá»‘ dÆ° khÃ´ng Ä‘á»§ Ä‘á»ƒ mua truyá»‡n nÃ y.",
+      message: "Số dư không đủ để mua truyện này.",
       balance: currentBalance,
       requiredAmount: unlockPrice,
     });
@@ -357,7 +357,7 @@ const unlockStory = asyncHandler(async (req, res) => {
     amount: unlockPrice,
     orderId: buildCompactId("unlock"),
     requestId: buildCompactId("unlock_req"),
-    message: "Má»Ÿ khÃ³a truyá»‡n thÃ nh cÃ´ng.",
+    message: "Mở khóa truyện thành công.",
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -378,17 +378,17 @@ const unlockChapter = asyncHandler(async (req, res) => {
   ensureRewardState(user);
 
   if (!chapter) {
-    return res.status(400).json(buildMessage("Loi: Khong tim thay chuong."));
+    return res.status(400).json(buildMessage("Lỗi: Khong tim thay chuong."));
   }
 
   const story = await Story.findById(chapter.storyId);
   if (!story) {
-    return res.status(400).json(buildMessage("Loi: Khong tim thay truyen."));
+    return res.status(400).json(buildMessage("Lỗi: Khong tim thay truyen."));
   }
 
   const plainStory = serializeDoc(story);
   if (!canViewStory(plainStory, req.user)) {
-    return res.status(404).json(buildMessage("Loi: Khong tim thay truyen."));
+    return res.status(404).json(buildMessage("Lỗi: Khong tim thay truyen."));
   }
 
   const entitlements = buildUserEntitlements(user);
@@ -404,14 +404,14 @@ const unlockChapter = asyncHandler(async (req, res) => {
 
   if (!access.accessPrice || access.accessMode === "FREE") {
     return res.status(400).json({
-      message: "Chuong nay khong ho tro mo khoa rieng.",
+      message: "Chương này không hỗ trợ mở khóa riêng.",
     });
   }
 
   const currentBalance = safeWalletBalance(user);
   if (currentBalance < access.accessPrice) {
     return res.status(402).json({
-      message: "So du khong du de mo khoa chuong nay.",
+      message: "Số dư không đủ để mở khóa chương này.",
       balance: currentBalance,
       requiredAmount: access.accessPrice,
     });
@@ -436,8 +436,8 @@ const unlockChapter = asyncHandler(async (req, res) => {
     requestId: buildCompactId("unlock_chapter_req"),
     message:
       access.accessMode === "EARLY_ACCESS"
-        ? "Mo khoa chuong early access thanh cong."
-        : "Mo khoa chuong thanh cong.",
+        ? "Mở khóa chuong early access thành công."
+        : "Mở khóa chuong thành công.",
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -459,12 +459,12 @@ const unlockChapterBundle = asyncHandler(async (req, res) => {
   ensureRewardState(user);
 
   if (!story) {
-    return res.status(400).json(buildMessage("Loi: Khong tim thay truyen."));
+    return res.status(400).json(buildMessage("Lỗi: Khong tim thay truyen."));
   }
 
   const plainStory = serializeDoc(story);
   if (!canViewStory(plainStory, req.user)) {
-    return res.status(404).json(buildMessage("Loi: Khong tim thay truyen."));
+    return res.status(404).json(buildMessage("Lỗi: Khong tim thay truyen."));
   }
 
   const entitlements = buildUserEntitlements(user);
@@ -485,7 +485,7 @@ const unlockChapterBundle = asyncHandler(async (req, res) => {
 
   if (!bundleOffer) {
     return res.status(400).json({
-      message: "Combo chuong khong hop le hoac da thay doi.",
+      message: "Combo chương không hợp lệ hoặc đã thay đổi.",
     });
   }
 
@@ -505,7 +505,7 @@ const unlockChapterBundle = asyncHandler(async (req, res) => {
   const currentBalance = safeWalletBalance(user);
   if (currentBalance < bundleOffer.price) {
     return res.status(402).json({
-      message: "So du khong du de mua combo chuong nay.",
+      message: "Số dư không đủ để mua combo chương này.",
       balance: currentBalance,
       requiredAmount: bundleOffer.price,
     });
@@ -528,7 +528,7 @@ const unlockChapterBundle = asyncHandler(async (req, res) => {
     amount: bundleOffer.price,
     orderId: buildCompactId("unlock_bundle"),
     requestId: buildCompactId("unlock_bundle_req"),
-    message: `Mo khoa ${bundleOffer.title} thanh cong.`,
+    message: `Mở khóa ${bundleOffer.title} thành công.`,
     metadata: {
       bundleId: bundleOffer.id,
       chapterCount: bundleOffer.chapterCount,
@@ -554,12 +554,12 @@ const rentStory = asyncHandler(async (req, res) => {
   ensureRewardState(user);
 
   if (!story) {
-    return res.status(400).json(buildMessage("Loi: Khong tim thay truyen."));
+    return res.status(400).json(buildMessage("Lỗi: Khong tim thay truyen."));
   }
 
   const plainStory = serializeDoc(story);
   if (!canViewStory(plainStory, req.user)) {
-    return res.status(404).json(buildMessage("Loi: Khong tim thay truyen."));
+    return res.status(404).json(buildMessage("Lỗi: Khong tim thay truyen."));
   }
 
   const entitlements = buildUserEntitlements(user);
@@ -567,7 +567,7 @@ const rentStory = asyncHandler(async (req, res) => {
 
   if (!storyCommerce.rentalEnabled) {
     return res.status(400).json({
-      message: "Truyen nay khong ho tro thue 7 ngay.",
+      message: "Truyện này không hỗ trợ thuê 7 ngày.",
     });
   }
 
@@ -583,7 +583,7 @@ const rentStory = asyncHandler(async (req, res) => {
   const currentBalance = safeWalletBalance(user);
   if (currentBalance < storyCommerce.rentalPrice) {
     return res.status(402).json({
-      message: "So du khong du de thue truyen nay.",
+      message: "Số dư không đủ để thuê truyện này.",
       balance: currentBalance,
       requiredAmount: storyCommerce.rentalPrice,
     });
@@ -607,7 +607,7 @@ const rentStory = asyncHandler(async (req, res) => {
     expiresAt,
     orderId: buildCompactId("rent_story"),
     requestId: buildCompactId("rent_story_req"),
-    message: `Thue truyen ${STORY_RENTAL_DURATION_DAYS} ngay thanh cong.`,
+    message: `Thuê truyện ${STORY_RENTAL_DURATION_DAYS} ngày thành công.`,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -629,37 +629,37 @@ const supportAuthor = asyncHandler(async (req, res) => {
   ensureRewardState(user);
 
   if (!story) {
-    return res.status(400).json(buildMessage("Loi: Khong tim thay truyen."));
+    return res.status(400).json(buildMessage("Lỗi: Khong tim thay truyen."));
   }
 
   const plainStory = serializeDoc(story);
   if (!canViewStory(plainStory, req.user)) {
-    return res.status(404).json(buildMessage("Loi: Khong tim thay truyen."));
+    return res.status(404).json(buildMessage("Lỗi: Khong tim thay truyen."));
   }
 
   if (!story.supportEnabled) {
     return res.status(400).json({
-      message: "Truyen nay hien khong mo ung ho tac gia.",
+      message: "Truyện này hiện không mở ủng hộ tác giả.",
     });
   }
 
   if (isOwner(plainStory, req.user)) {
     return res.status(400).json({
-      message: "Ban khong the tu ung ho chinh minh.",
+      message: "Bạn không thể tự ủng hộ chính mình.",
     });
   }
 
   const amount = normalizeCurrencyAmount(req.body.amount, 0);
   if (amount < 1000) {
     return res.status(400).json({
-      message: "So tien ung ho toi thieu la 1.000 VND.",
+      message: "Số tiền ủng hộ tối thiểu là 1.000 VND.",
     });
   }
 
   const currentBalance = safeWalletBalance(user);
   if (currentBalance < amount) {
     return res.status(402).json({
-      message: "So du khong du de ung ho tac gia.",
+      message: "Số dư không đủ để ủng hộ tác giả.",
       balance: currentBalance,
       requiredAmount: amount,
     });
@@ -688,7 +688,7 @@ const supportAuthor = asyncHandler(async (req, res) => {
     amount,
     orderId: buildCompactId("support_story"),
     requestId: buildCompactId("support_story_req"),
-    message: "Ung ho tac gia thanh cong.",
+    message: "Ủng hộ tác giả thành công.",
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -708,11 +708,11 @@ const unlockProfileSkin = asyncHandler(async (req, res) => {
 
   const skin = getProfileSkinDefinition(req.params.skinId);
   if (!skin) {
-    return res.status(400).json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y skin há»“ sÆ¡!"));
+    return res.status(400).json(buildMessage("Lỗi: Không tìm thấy skin hồ sơ!"));
   }
 
   if (skin.priceCoins <= 0) {
-    return res.status(400).json(buildMessage("Lá»—i: Skin há»“ sÆ¡ nÃ y Ä‘Ã£ miá»…n phÃ­."));
+    return res.status(400).json(buildMessage("Lỗi: Skin hồ sơ này đã miễn phí."));
   }
 
   const ownedSkinIds = new Set(user.ownedProfileSkinIds || []);
@@ -727,7 +727,7 @@ const unlockProfileSkin = asyncHandler(async (req, res) => {
   const currentCoins = safeCoinBalance(user);
   if (currentCoins < skin.priceCoins) {
     return res.status(402).json({
-      message: "So xu khong du de mo khoa skin nay.",
+      message: "Số xu không đủ để mở khóa skin này.",
       coinBalance: currentCoins,
       requiredCoins: skin.priceCoins,
     });
@@ -745,7 +745,7 @@ const unlockProfileSkin = asyncHandler(async (req, res) => {
     amount: skin.priceCoins,
     orderId: buildCompactId("skin"),
     requestId: buildCompactId("skin_req"),
-    message: `Má»Ÿ khÃ³a skin há»“ sÆ¡ ${skin.id} thÃ nh cÃ´ng.`,
+    message: `Mở khóa skin hồ sơ ${skin.id} thành công.`,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -763,13 +763,13 @@ const equipProfileSkin = asyncHandler(async (req, res) => {
 
   const skin = getProfileSkinDefinition(req.params.skinId);
   if (!skin) {
-    return res.status(400).json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y skin há»“ sÆ¡!"));
+    return res.status(400).json(buildMessage("Lỗi: Không tìm thấy skin hồ sơ!"));
   }
 
   if (!(user.ownedProfileSkinIds || []).includes(skin.id)) {
     return res
       .status(400)
-      .json(buildMessage("Lá»—i: Skin há»“ sÆ¡ nÃ y chÆ°a Ä‘Æ°á»£c má»Ÿ khÃ³a."));
+      .json(buildMessage("Lỗi: Skin hồ sơ này chưa được mờŸ khóa."));
   }
 
   user.equippedProfileSkinId = skin.id;
@@ -784,7 +784,7 @@ const equipProfileSkin = asyncHandler(async (req, res) => {
 
 const createMomoTopUp = asyncHandler(async (req, res) => {
   if (!isMomoReady()) {
-    return res.status(503).json(buildMessage("Lá»—i: MoMo chÆ°a Ä‘Æ°á»£c cáº¥u hÃ¬nh."));
+    return res.status(503).json(buildMessage("Lỗi: MoMo chưa được cấu hình."));
   }
 
   const user = await getCurrentUserDocument(req);
@@ -792,7 +792,7 @@ const createMomoTopUp = asyncHandler(async (req, res) => {
   if (amount < 1000) {
     return res
       .status(400)
-      .json(buildMessage("Lá»—i: Sá»‘ tiá»n náº¡p tá»‘i thiá»ƒu lÃ  1.000 VND."));
+      .json(buildMessage("Lỗi: Sờ‘ tiờn náº¡p tối thiểu lÃ  1.000 VND."));
   }
 
   const orderId = buildCompactId("topup");
@@ -850,7 +850,7 @@ const createMomoTopUp = asyncHandler(async (req, res) => {
 
     if (!momoResponse.ok || resultCode !== 0 || !payUrl) {
       return res.status(400).json({
-        message: message || "KhÃ´ng táº¡o Ä‘Æ°á»£c link thanh toÃ¡n MoMo.",
+        message: message || "Không tạo được link thanh toán MoMo.",
         resultCode,
       });
     }
@@ -877,18 +877,18 @@ const createMomoTopUp = asyncHandler(async (req, res) => {
   } catch (error) {
     return res
       .status(502)
-      .json(buildMessage(`Error: Could not connect thÃ nh MoMo. ${error.message}`));
+      .json(buildMessage(`Error: Could not connect thành MoMo. ${error.message}`));
   }
 });
 
 async function processMomoCallback(payload) {
   if (!env.isMomoConfigured) {
-    throw httpError(503, "Lá»—i: MoMo chÆ°a Ä‘Æ°á»£c cáº¥u hÃ¬nh.");
+    throw httpError(503, "Lỗi: MoMo chưa được cấu hình.");
   }
 
   const receivedSignature = asText(payload.signature);
   if (!receivedSignature) {
-    throw httpError(400, "Lá»—i: Thiáº¿u chá»¯ kÃ½ MoMo.");
+    throw httpError(400, "Lỗi: Thiếu chữ ký MoMo.");
   }
 
   const rawSignature =
@@ -908,14 +908,14 @@ async function processMomoCallback(payload) {
 
   const expectedSignature = hmacSha256(rawSignature, env.momoSecretKey);
   if (expectedSignature !== receivedSignature) {
-    throw httpError(400, "Lá»—i: Chá»¯ kÃ½ MoMo khÃ´ng há»£p lá»‡.");
+    throw httpError(400, "Lỗi: Chờ¯ ký MoMo không hợp lệ.");
   }
 
   const transaction = await PaymentTransaction.findOne({
     orderId: asText(payload.orderId),
   });
   if (!transaction) {
-    throw httpError(404, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y giao dá»‹ch thanh toÃ¡n.");
+    throw httpError(404, "Lỗi: Không tìm thấy giao dịch thanh toán.");
   }
 
   transaction.providerTransactionId = toLong(payload.transId);

@@ -13,7 +13,7 @@ const createReport = asyncHandler(async (req, res) => {
     reason: req.body.reason,
   });
 
-  res.json(buildMessage("ÄÃ£ gá»­i bÃ¡o lá»—i thÃ nh cÃ´ng!"));
+  res.json(buildMessage("Đã gửi báo lỗi thành công!"));
 });
 
 const listReports = asyncHandler(async (_req, res) => {
@@ -24,7 +24,7 @@ const listReports = asyncHandler(async (_req, res) => {
 const updateReportStatus = asyncHandler(async (req, res) => {
   const report = await Report.findById(req.params.id);
   if (!report) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y bÃ¡o lá»—i!");
+    throw httpError(400, "Lỗi: Không tìm thấy báo lỗi!");
   }
 
   report.status = req.body.status;

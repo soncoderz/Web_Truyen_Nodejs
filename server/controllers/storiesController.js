@@ -59,15 +59,15 @@ function normalizeUnlockPrice(value) {
 
 function validateStoryPricing(story) {
   if (story.licensed && Number(story.unlockPrice || 0) <= 0) {
-    return "Lá»—i: Truyá»‡n cÃ³ báº£n quyá»n pháº£i cÃ³ giÃ¡ má»Ÿ khÃ³a lá»›n hÆ¡n 0.";
+    return "Lỗi: Truyện có bản quyờn phải có giá mờŸ khóa lớn hơn 0.";
   }
 
   if (story.rentalEnabled && Number(story.rentalPrice || 0) <= 0) {
-    return "Loi: Thue truyen 7 ngay phai co gia lon hon 0.";
+    return "Lỗi: Thuê truyện 7 ngày phải có giá lớn hơn 0.";
   }
 
   if (story.chapterBundleEnabled && Number(story.chapterBundleSize || 0) < 2) {
-    return "Loi: Combo chuong phai co it nhat 2 chuong.";
+    return "Lỗi: Combo chương phải có ít nhất 2 chuong.";
   }
 
   return null;
@@ -81,7 +81,7 @@ async function resolveCategories(categoryIds) {
 
   const categories = await Category.find({ _id: { $in: ids } }).lean();
   if (categories.length !== ids.length) {
-    throw httpError(500, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y thá»ƒ loáº¡i.");
+    throw httpError(500, "Lỗi: Không tìm thấy thể loại.");
   }
 
   return ids.map((id) => createDbRef("categories", id));
@@ -415,13 +415,13 @@ const createStory = asyncHandler(async (req, res) => {
 const updateStory = asyncHandler(async (req, res) => {
   const story = await Story.findById(req.params.id);
   if (!story) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   const user = await getCurrentUserDocument(req);
   const admin = isAdmin(req.user);
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "Error: You do not have permission thÃ nh update this story.");
+    throw httpError(403, "Error: You do not have permission thành update this story.");
   }
 
   await applyStoryRequest(story, req.body, false, admin);
@@ -446,7 +446,7 @@ const updateStory = asyncHandler(async (req, res) => {
 const updateStoryApproval = asyncHandler(async (req, res) => {
   const story = await Story.findById(req.params.id);
   if (!story) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   story.updatedAt = new Date();
@@ -459,26 +459,26 @@ const updateStoryApproval = asyncHandler(async (req, res) => {
 const deleteStory = asyncHandler(async (req, res) => {
   const story = await Story.findById(req.params.id);
   if (!story) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "Error: You do not have permission thÃ nh delete this story.");
+    throw httpError(403, "Error: You do not have permission thành delete this story.");
   }
 
   await Chapter.deleteMany({ storyId: String(story._id) });
   await story.deleteOne();
-  res.json(buildMessage("ÄÃ£ xÃ³a truyá»‡n thÃ nh cÃ´ng!"));
+  res.json(buildMessage("Đã xóa truyện thành công!"));
 });
 
 const incrementStoryViews = asyncHandler(async (req, res) => {
   const story = await Story.findById(req.params.id);
   if (!story) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!isApprovedStatus(story.approvalStatus)) {
-    throw httpError(400, "Lá»—i: Truyá»‡n hiá»‡n khÃ´ng kháº£ dá»¥ng!");
+    throw httpError(400, "Lỗi: Truyện hiện không khả dụng!");
   }
 
   story.views = Number(story.views || 0) + 1;
@@ -493,11 +493,11 @@ const toggleFollowStory = asyncHandler(async (req, res) => {
   ]);
 
   if (!story) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n hoáº·c ngÆ°á»i dÃ¹ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện hoặc ngÆ°ời dùng!");
   }
 
   if (!isApprovedStatus(story.approvalStatus)) {
-    throw httpError(400, "Lá»—i: Truyá»‡n hiá»‡n khÃ´ng kháº£ dá»¥ng!");
+    throw httpError(400, "Lỗi: Truyện hiện không khả dụng!");
   }
 
   user.followedStoryIds = ensureArray(user.followedStoryIds);
@@ -635,14 +635,14 @@ const getStoryById = asyncHandler(async (req, res) => {
   if (!story) {
     return optional
       ? res.json(null)
-      : res.status(400).json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!"));
+      : res.status(400).json(buildMessage("Lỗi: Không tìm thấy truyện!"));
   }
 
   const hydrated = await hydrateStory(story);
   if (!canViewStory(hydrated, req.user)) {
     return optional
       ? res.json(null)
-      : res.status(404).json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!"));
+      : res.status(404).json(buildMessage("Lỗi: Không tìm thấy truyện!"));
   }
 
   res.json(hydrated);

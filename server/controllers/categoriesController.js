@@ -11,7 +11,7 @@ const listCategories = asyncHandler(async (_req, res) => {
 const getCategoryById = asyncHandler(async (req, res) => {
   const category = await Category.findById(req.params.id).lean();
   if (!category) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y thá»ƒ loáº¡i!");
+    throw httpError(400, "Lỗi: Không tìm thấy thể loại!");
   }
 
   res.json(serializeDoc(category));
@@ -29,7 +29,7 @@ const createCategory = asyncHandler(async (req, res) => {
 const updateCategory = asyncHandler(async (req, res) => {
   const category = await Category.findById(req.params.id);
   if (!category) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y thá»ƒ loáº¡i!");
+    throw httpError(400, "Lỗi: Không tìm thấy thể loại!");
   }
 
   category.name = req.body.name;
@@ -42,11 +42,11 @@ const updateCategory = asyncHandler(async (req, res) => {
 const deleteCategory = asyncHandler(async (req, res) => {
   const category = await Category.findById(req.params.id);
   if (!category) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y thá»ƒ loáº¡i!");
+    throw httpError(400, "Lỗi: Không tìm thấy thể loại!");
   }
 
   await category.deleteOne();
-  res.json(buildMessage("ÄÃ£ xÃ³a thá»ƒ loáº¡i thÃ nh cÃ´ng!"));
+  res.json(buildMessage("xóa danh mục thành công!"));
 });
 
 module.exports = {

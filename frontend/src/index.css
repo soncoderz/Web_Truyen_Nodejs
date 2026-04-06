@@ -4786,6 +4786,210 @@ tr:hover td {
   color: var(--section-strong-highlight);
 }
 
+/* ===== HOME STORY BANNER ===== */
+.home-story-banner {
+  margin: -0.25rem 0 2.75rem;
+}
+
+.home-story-banner-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.home-story-banner-kicker {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.home-story-banner-copy {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  text-align: right;
+}
+
+.home-story-banner-shell {
+  position: relative;
+  overflow: hidden;
+  padding: 1rem 0;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 179, 71, 0.14), transparent 26%),
+    radial-gradient(circle at right center, rgba(108, 99, 255, 0.16), transparent 28%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+    var(--bg-card);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.2);
+}
+
+.home-story-banner-shell::before,
+.home-story-banner-shell::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 76px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.home-story-banner-shell::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--bg-card), rgba(22, 33, 62, 0));
+}
+
+.home-story-banner-shell::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--bg-card), rgba(22, 33, 62, 0));
+}
+
+.home-story-banner-track {
+  display: flex;
+  gap: 1rem;
+  width: max-content;
+  padding: 0 1rem;
+  animation: homeStoryBannerScroll 34s linear infinite;
+  will-change: transform;
+}
+
+.home-story-banner-track.is-static {
+  width: 100%;
+  justify-content: center;
+  animation: none;
+}
+
+.home-story-banner-shell:hover .home-story-banner-track {
+  animation-play-state: paused;
+}
+
+.home-story-banner-item {
+  position: relative;
+  width: clamp(180px, 19vw, 250px);
+  aspect-ratio: 3 / 4;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, var(--bg-secondary), var(--bg-card));
+  color: var(--text-inverse);
+  box-shadow: 0 16px 26px rgba(0, 0, 0, 0.22);
+}
+
+.home-story-banner-item::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(7, 10, 20, 0.06) 0%, rgba(7, 10, 20, 0.18) 46%, rgba(7, 10, 20, 0.92) 100%);
+  pointer-events: none;
+}
+
+.home-story-banner-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+
+.home-story-banner-item:hover img {
+  transform: scale(1.06);
+}
+
+.home-story-banner-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem;
+}
+
+.home-story-banner-badge {
+  width: fit-content;
+  padding: 0.28rem 0.68rem;
+  border-radius: 999px;
+  background: rgba(7, 10, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffe1a0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.home-story-banner-overlay strong {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.home-story-banner-overlay span:last-child {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.8rem;
+}
+
+@keyframes homeStoryBannerScroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-50% - 0.5rem));
+  }
+}
+
+@media (max-width: 768px) {
+  .home-story-banner {
+    margin-top: -0.5rem;
+  }
+
+  .home-story-banner-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .home-story-banner-copy {
+    text-align: left;
+  }
+
+  .home-story-banner-shell::before,
+  .home-story-banner-shell::after {
+    width: 36px;
+  }
+
+  .home-story-banner-item {
+    width: clamp(150px, 48vw, 210px);
+  }
+
+  .home-story-banner-track {
+    animation-duration: 28s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-story-banner-track {
+    animation: none;
+  }
+}
+
 /* ===== HOT STORIES LIST ===== */
 .hot-lists-grid {
   display: grid;

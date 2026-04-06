@@ -200,7 +200,7 @@ const getDistribution = asyncHandler(async (_req, res) => {
     byStatus: [
       { name: "Äang ra", value: ongoingCount },
       { name: "Da hoan thanh", value: completedCount },
-      { name: "ÄÃ£ drop", value: droppedCount },
+      { name: "Đã drop", value: droppedCount },
     ],
     byRole: [
       { name: "Admin", value: adminCount },

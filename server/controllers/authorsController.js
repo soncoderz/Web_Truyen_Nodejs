@@ -11,7 +11,7 @@ const listAuthors = asyncHandler(async (_req, res) => {
 const getAuthorById = asyncHandler(async (req, res) => {
   const author = await Author.findById(req.params.id).lean();
   if (!author) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y tÃ¡c giáº£!");
+    throw httpError(400, "Lỗi: Không tìm thấy tác giả!");
   }
 
   res.json(serializeDoc(author));
@@ -29,7 +29,7 @@ const createAuthor = asyncHandler(async (req, res) => {
 const updateAuthor = asyncHandler(async (req, res) => {
   const author = await Author.findById(req.params.id);
   if (!author) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y tÃ¡c giáº£!");
+    throw httpError(400, "Lỗi: Không tìm thấy tác giả!");
   }
 
   author.name = req.body.name;
@@ -42,11 +42,11 @@ const updateAuthor = asyncHandler(async (req, res) => {
 const deleteAuthor = asyncHandler(async (req, res) => {
   const author = await Author.findById(req.params.id);
   if (!author) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y tÃ¡c giáº£!");
+    throw httpError(400, "Lỗi: Không tìm thấy tác giả!");
   }
 
   await author.deleteOne();
-  res.json(buildMessage("ÄÃ£ xÃ³a tÃ¡c giáº£ thÃ nh cÃ´ng!"));
+  res.json(buildMessage("Đã xóa tác giả thành công!"));
 });
 
 module.exports = {

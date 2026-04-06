@@ -8,7 +8,7 @@ const {
 const uploadImage = asyncHandler(async (req, res) => {
   ensureCloudinaryConfigured();
   if (!req.file) {
-    throw httpError(400, "Tai len that bai: Thieu tep.");
+    throw httpError(400, "Tải lên thất bại: Thiếu tệp.");
   }
 
   const result = await uploadBuffer(req.file.buffer, {
@@ -22,7 +22,7 @@ const uploadImage = asyncHandler(async (req, res) => {
 const uploadImages = asyncHandler(async (req, res) => {
   ensureCloudinaryConfigured();
   if (!req.files || req.files.length === 0) {
-    throw httpError(400, "Tai len that bai: Thieu tep.");
+    throw httpError(400, "Tải lên thất bại: Thiếu tệp.");
   }
 
   const urls = [];

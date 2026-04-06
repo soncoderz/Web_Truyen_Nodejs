@@ -21,11 +21,16 @@ async function startServer() {
 
   const app = createApp();
   const server = http.createServer(app);
+
+  // Khởi tạo Socket.IO
+  logInfo("Initializing Socket.IO server...");
   initializeRealtime(server);
+  logInfo("Socket.IO server initialized successfully");
 
   server.listen(env.port, () => {
     logInfo(`Node backend listening on port ${env.port}.`);
     logInfo(`Backend log file: ${backendLogPath}`);
+    logInfo(`Socket.IO ready for connections`);
   });
 }
 

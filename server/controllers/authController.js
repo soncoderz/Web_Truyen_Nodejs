@@ -42,7 +42,7 @@ const signIn = asyncHandler(async (req, res) => {
   if (!user) {
     return res
       .status(401)
-      .json(buildMessage("Lá»—i: TÃªn Ä‘Äƒng nháº­p hoáº·c máº­t kháº©u khÃ´ng Ä‘Ãºng!"));
+      .json(buildMessage("Lỗi: Ten dang nhap hoac mat khau khong dung!"));
   }
 
   const validPassword = await bcrypt.compare(
@@ -52,7 +52,7 @@ const signIn = asyncHandler(async (req, res) => {
   if (!validPassword) {
     return res
       .status(401)
-      .json(buildMessage("Lá»—i: TÃªn Ä‘Äƒng nháº­p hoáº·c máº­t kháº©u khÃ´ng Ä‘Ãºng!"));
+      .json(buildMessage("Lỗi: Ten dang nhap hoac mat khau khong dung!"));
   }
 
   res.json(await buildAuthPayload(user));
@@ -61,16 +61,12 @@ const signIn = asyncHandler(async (req, res) => {
 const signUp = asyncHandler(async (req, res) => {
   const existingUsername = await User.exists({ username: req.body.username });
   if (existingUsername) {
-    return res
-      .status(400)
-      .json(buildMessage("Lá»—i: TÃªn Ä‘Äƒng nháº­p Ä‘Ã£ tá»“n táº¡i!"));
+    return res.status(400).json(buildMessage("Lỗi: Ten dang nhap da ton tai!"));
   }
 
   const existingEmail = await User.exists({ email: req.body.email });
   if (existingEmail) {
-    return res
-      .status(400)
-      .json(buildMessage("Lá»—i: Email Ä‘Ã£ Ä‘Æ°á»£c sá»­ dá»¥ng!"));
+    return res.status(400).json(buildMessage("Lỗi: Email da duoc su dung!"));
   }
 
   const requestedRoles = Array.isArray(req.body.roles) ? req.body.roles : [];
@@ -89,7 +85,7 @@ const signUp = asyncHandler(async (req, res) => {
     roles: await getRoleRefs(Array.from(new Set(roleNames))),
   });
 
-  res.json(buildMessage("ÄÄƒng kÃ½ tÃ i khoáº£n thÃ nh cÃ´ng!"));
+  res.json(buildMessage("Dang ky tai khoan thành công!"));
 });
 
 const signInWithGoogle = asyncHandler(async (req, res) => {
@@ -99,7 +95,7 @@ const signInWithGoogle = asyncHandler(async (req, res) => {
         .status(400)
         .json(
           buildMessage(
-            "Lá»—i: ÄÄƒng nháº­p Google tháº¥t báº¡i! Thiáº¿u Google client ID.",
+            "Lỗi: Dang nhap Google that bai! Thieu Google client ID.",
           ),
         );
     }
@@ -111,9 +107,7 @@ const signInWithGoogle = asyncHandler(async (req, res) => {
 
     const payload = ticket.getPayload();
     if (!payload) {
-      return res
-        .status(400)
-        .json(buildMessage("Lá»—i: Google token khÃ´ng há»£p lá»‡!"));
+      return res.status(400).json(buildMessage("Lỗi: Google token khong hop le!"));
     }
 
     const googleId = payload.sub;
@@ -159,14 +153,14 @@ const signInWithGoogle = asyncHandler(async (req, res) => {
   } catch (error) {
     return res
       .status(400)
-      .json(buildMessage(`Lá»—i: ÄÄƒng nháº­p Google tháº¥t báº¡i! ${error.message}`));
+      .json(buildMessage(`Lỗi: Dang nhap Google that bai! ${error.message}`));
   }
 });
 
 const forgotPassword = asyncHandler(async (req, res) => {
   const user = await User.findOne({ email: req.body.email });
   if (!user) {
-    return res.status(400).json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y email!"));
+    return res.status(400).json(buildMessage("Lỗi: Khong tim thay email!"));
   }
 
   const token = randomUUID();
@@ -176,20 +170,20 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   const sent = await sendResetPasswordEmail(user.email, token);
   if (!sent) {
-    return res.status(500).json(buildMessage("Lá»—i: KhÃ´ng thá»ƒ gá»­i email."));
+    return res.status(500).json(buildMessage("Lỗi: Khong the gui email."));
   }
 
-  res.json(buildMessage("ÄÃ£ gá»­i email Ä‘áº·t láº¡i máº­t kháº©u thÃ nh cÃ´ng."));
+  res.json(buildMessage("Da gui email dat lai mat khau thành công."));
 });
 
 const resetPassword = asyncHandler(async (req, res) => {
   const user = await User.findOne({ resetToken: req.body.token });
   if (!user) {
-    return res.status(400).json(buildMessage("Lá»—i: Token khÃ´ng há»£p lá»‡!"));
+    return res.status(400).json(buildMessage("Lỗi: Token khong hop le!"));
   }
 
   if (user.resetTokenExpiry && user.resetTokenExpiry.getTime() < Date.now()) {
-    return res.status(400).json(buildMessage("Lá»—i: Token Ä‘Ã£ háº¿t háº¡n!"));
+    return res.status(400).json(buildMessage("Lỗi: Token da het han!"));
   }
 
   user.password = await bcrypt.hash(String(req.body.newPassword || ""), 10);
@@ -197,7 +191,7 @@ const resetPassword = asyncHandler(async (req, res) => {
   user.resetTokenExpiry = null;
   await user.save();
 
-  res.json(buildMessage("Äáº·t láº¡i máº­t kháº©u thÃ nh cÃ´ng!"));
+  res.json(buildMessage("Dat lai mat khau thành công!"));
 });
 
 module.exports = {

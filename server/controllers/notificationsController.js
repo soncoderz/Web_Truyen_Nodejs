@@ -65,7 +65,7 @@ const markRead = asyncHandler(async (req, res) => {
   });
 
   if (!notification) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y thÃ´ng bÃ¡o!");
+    throw httpError(400, "Lỗi: Không tìm thấy thông báo!");
   }
 
   notification.isRead = true;

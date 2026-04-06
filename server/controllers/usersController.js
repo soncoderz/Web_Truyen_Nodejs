@@ -124,7 +124,7 @@ const updateMyProfile = asyncHandler(async (req, res) => {
   await user.save();
 
   res.json({
-    message: "ÄÃ£ cáº­p nháº­t há»“ sÆ¡ cÃ´ng khai.",
+    message: "Đã cập nhật hồ sơ công khai.",
     settings: buildEditableProfileSettings(user),
     profile: buildPublicProfilePayload(user),
   });
@@ -134,14 +134,14 @@ const getPublicUserProfile = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res
       .status(404)
-      .json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y ngÆ°á»i dÃ¹ng!"));
+      .json(buildMessage("Lỗi: Không tìm thấy ngÆ°ời dùng!"));
   }
 
   const user = await User.findById(req.params.id).lean();
   if (!user) {
     return res
       .status(404)
-      .json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y ngÆ°á»i dÃ¹ng!"));
+      .json(buildMessage("Lỗi: Không tìm thấy ngÆ°ời dùng!"));
   }
 
   const [commentCount, publishedStoryCount, recentStories] = await Promise.all([

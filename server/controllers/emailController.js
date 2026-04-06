@@ -20,8 +20,8 @@ const sendSimple = asyncHandler(async (req, res) => {
   res.status(success ? 200 : 400).json({
     success,
     message: success
-      ? "Email Ä‘Ã£ Ä‘Æ°á»£c gá»­i thÃ nh cÃ´ng!"
-      : "KhÃ´ng thá»ƒ gá»­i email. Vui lÃ²ng kiá»ƒm tra API key.",
+      ? "Email đã gửi thành công!"
+      : "Không thể gửi email. Vui lòng kiểm tra API key.",
   });
 });
 
@@ -36,8 +36,8 @@ const sendHtml = asyncHandler(async (req, res) => {
   res.status(success ? 200 : 400).json({
     success,
     message: success
-      ? "Email HTML Ä‘Ã£ Ä‘Æ°á»£c gá»­i thÃ nh cÃ´ng!"
-      : "KhÃ´ng thá»ƒ gá»­i email. Vui lÃ²ng kiá»ƒm tra API key.",
+      ? "Email HTML đã gửi thành công!"
+      : "Không thể gửi email. Vui lòng kiểm tra API key.",
   });
 });
 
@@ -50,8 +50,8 @@ const sendVerification = asyncHandler(async (req, res) => {
   res.status(success ? 200 : 400).json({
     success,
     message: success
-      ? "Email xÃ¡c minh Ä‘Ã£ Ä‘Æ°á»£c gá»­i thÃ nh cÃ´ng!"
-      : "KhÃ´ng thá»ƒ gá»­i email xÃ¡c minh.",
+      ? "Email xác minh đã gửi thành công!"
+      : "Không thể gửi email xác minh.",
   });
 });
 
@@ -65,8 +65,8 @@ const sendNotification = asyncHandler(async (req, res) => {
   res.status(success ? 200 : 400).json({
     success,
     message: success
-      ? "Email thÃ´ng bÃ¡o Ä‘Ã£ Ä‘Æ°á»£c gá»­i thÃ nh cÃ´ng!"
-      : "KhÃ´ng thá»ƒ gá»­i email thÃ´ng bÃ¡o.",
+      ? "Email thông báo đã gửi thành công!"
+      : "Không thể gửi email thông báo.",
   });
 });
 

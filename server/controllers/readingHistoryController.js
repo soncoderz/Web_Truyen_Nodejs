@@ -69,7 +69,7 @@ const upsertReadingHistory = asyncHandler(async (req, res) => {
 const deleteReadingHistory = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   await ReadingHistory.deleteOne({ _id: req.params.id, userId: user.id });
-  res.json(buildMessage("ÄÃ£ xÃ³a lá»‹ch sá»­!"));
+  res.json(buildMessage("Đã xóa lịch sử!"));
 });
 
 module.exports = {

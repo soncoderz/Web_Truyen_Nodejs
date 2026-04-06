@@ -51,7 +51,7 @@ function normalizeOptionalPageIndex(value) {
 
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    throw httpError(400, "Loi: So trang binh luan khong hop le.");
+    throw httpError(400, "Lỗi: Số trang bình luận không hợp lệ.");
   }
 
   return parsed;
@@ -193,7 +193,7 @@ async function createCommentNotifications({
     pushNotification({
       type: COMMENT_NOTIFICATION_TYPES.REPLY,
       userId: parentComment.userId,
-      message: `${actorUsername} da tra loi binh luan cua ban trong ${contextLabel}.`,
+      message: `${actorUsername} đã trả lời bình luận của bạn trong ${contextLabel}.`,
     });
   }
 
@@ -213,7 +213,7 @@ async function createCommentNotifications({
       pushNotification({
         type: COMMENT_NOTIFICATION_TYPES.MENTION,
         userId: mentionedUser._id,
-        message: `${actorUsername} da nhac den ban trong binh luan o ${contextLabel}.`,
+        message: `${actorUsername} đã nhắc đến bạn trong bình luận ở ${contextLabel}.`,
       });
     });
   }
@@ -311,38 +311,38 @@ const createComment = asyncHandler(async (req, res) => {
   const pageIndex = normalizeOptionalPageIndex(req.body.pageIndex);
 
   if (!storyId) {
-    throw httpError(400, "Loi: Thieu truyen de binh luan.");
+    throw httpError(400, "Lỗi: Thieu truyen de binh luan.");
   }
 
   if (!isObjectId(storyId)) {
-    throw httpError(400, "Loi: Ma truyen khong hop le.");
+    throw httpError(400, "Lỗi: Ma truyen khong hop le.");
   }
 
   if (chapterId && !isObjectId(chapterId)) {
-    throw httpError(400, "Loi: Ma chuong khong hop le.");
+    throw httpError(400, "Lỗi: Ma chuong khong hop le.");
   }
 
   if (parentCommentId && !isObjectId(parentCommentId)) {
-    throw httpError(400, "Loi: Ma binh luan goc khong hop le.");
+    throw httpError(400, "Lỗi: Ma binh luan goc khong hop le.");
   }
 
   if (pageIndex !== null && !chapterId) {
-    throw httpError(400, "Loi: Binh luan theo trang phai thuoc mot chuong.");
+    throw httpError(400, "Lỗi: Binh luan theo trang phai thuoc mot chuong.");
   }
 
   if (!hasText(req.body.content) && !hasText(req.body.gifUrl)) {
-    throw httpError(400, "Loi: Can co noi dung binh luan hoac GIF.");
+    throw httpError(400, "Lỗi: Can co noi dung binh luan hoac GIF.");
   }
 
   if (req.body.gifSize && Number(req.body.gifSize) > 2 * 1024 * 1024) {
-    throw httpError(400, "Loi: Kich thuoc GIF phai nho hon hoac bang 2MB.");
+    throw httpError(400, "Lỗi: Kich thuoc GIF phai nho hon hoac bang 2MB.");
   }
 
   const story = await Story.findById(storyId)
     .select({ _id: 1, title: 1, coverImage: 1 })
     .lean();
   if (!story) {
-    throw httpError(404, "Loi: Khong tim thay truyen.");
+    throw httpError(404, "Lỗi: Khong tim thay truyen.");
   }
 
   let chapter = null;
@@ -352,11 +352,11 @@ const createComment = asyncHandler(async (req, res) => {
       .select({ _id: 1, storyId: 1, chapterNumber: 1, title: 1 })
       .lean();
     if (!chapter) {
-      throw httpError(404, "Loi: Khong tim thay chuong.");
+      throw httpError(404, "Lỗi: Khong tim thay chuong.");
     }
 
     if (String(chapter.storyId || "") !== String(storyId)) {
-      throw httpError(400, "Loi: Chuong khong thuoc truyen nay.");
+      throw httpError(400, "Lỗi: Chuong khong thuoc truyen nay.");
     }
 
     chapterNumber = chapter.chapterNumber;
@@ -366,7 +366,7 @@ const createComment = asyncHandler(async (req, res) => {
   if (parentCommentId) {
     parentComment = await Comment.findById(parentCommentId).lean();
     if (!parentComment) {
-      throw httpError(404, "Loi: Khong tim thay binh luan goc.");
+      throw httpError(404, "Lỗi: Khong tim thay binh luan goc.");
     }
 
     if (
@@ -376,7 +376,7 @@ const createComment = asyncHandler(async (req, res) => {
         pageIndex,
       })
     ) {
-      throw httpError(400, "Loi: Khong the tra loi binh luan o pham vi khac.");
+      throw httpError(400, "Lỗi: Khong the tra loi binh luan o pham vi khac.");
     }
   }
 
@@ -415,12 +415,12 @@ const deleteComment = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const comment = await Comment.findById(req.params.id);
   if (!comment) {
-    throw httpError(400, "Loi: Khong tim thay binh luan.");
+    throw httpError(400, "Lỗi: Khong tim thay binh luan.");
   }
 
   const userIsAdmin = req.user.roles?.includes("ROLE_ADMIN");
   if (!userIsAdmin && String(comment.userId) !== String(user.id)) {
-    throw httpError(400, "Loi: Khong co quyen thuc hien.");
+    throw httpError(400, "Lỗi: Khong co quyen thuc hien.");
   }
 
   const descendants = await getCommentDescendants(comment);
@@ -432,7 +432,7 @@ const deleteComment = asyncHandler(async (req, res) => {
     emitCommentDeleted(deletedComment);
   });
 
-  res.json(buildMessage("Da xoa binh luan thanh cong."));
+  res.json(buildMessage("Da xoa binh luan thành công."));
 });
 
 module.exports = {

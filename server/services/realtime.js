@@ -4,6 +4,7 @@ const env = require("../config/env");
 const { isAllowedOrigin } = require("../config/cors");
 const { VALID_TARGET_TYPES } = require("../models/reaction");
 const { serializeDoc } = require("../utils/serialize");
+const { logInfo, logError } = require("../utils/logger");
 
 const NEW_NOTIFICATION_EVENT = "notification:new";
 const REACTION_UPDATED_EVENT = "reaction:updated";
@@ -313,22 +314,37 @@ function initializeRealtime(httpServer) {
 
     if (!token) {
       socket.data.user = null;
+      logInfo(`Socket connection attempt without token from ${socket.handshake.address}`);
       return next();
     }
 
     try {
       socket.data.user = jwt.verify(token, env.jwtSecret);
+      logInfo(`Socket authenticated for user: ${socket.data.user.id} (${socket.data.user.username || 'unknown'})`);
       return next();
-    } catch (_error) {
+    } catch (error) {
+      logError(`Socket authentication failed from ${socket.handshake.address}`, error);
       return next(new Error("Unauthorized"));
     }
   });
 
   io.on("connection", (socket) => {
     const userId = socket.data.user?.id;
+    const username = socket.data.user?.username || 'guest';
+    const socketId = socket.id;
+    const clientAddress = socket.handshake.address;
+    
+    // Log khi có người kết nối
     if (userId) {
       socket.join(getUserRoom(userId));
+      logInfo(`✓ Socket connected: User ${username} (ID: ${userId}) | Socket ID: ${socketId} | IP: ${clientAddress}`);
+    } else {
+      logInfo(`✓ Socket connected: Guest user | Socket ID: ${socketId} | IP: ${clientAddress}`);
     }
+
+    // Log tổng số kết nối hiện tại
+    const totalConnections = io.engine.clientsCount;
+    logInfo(`Total active socket connections: ${totalConnections}`);
 
     socket.on(REACTION_SUBSCRIBE_EVENT, (payload) => {
       joinReactionTargets(socket, payload);
@@ -361,6 +377,18 @@ function initializeRealtime(httpServer) {
         .forEach((target) => {
           queueChapterPresenceEmit(target);
         });
+    });
+
+    // Log khi người dùng ngắt kết nối
+    socket.on("disconnect", (reason) => {
+      if (userId) {
+        logInfo(`✗ Socket disconnected: User ${username} (ID: ${userId}) | Socket ID: ${socketId} | Reason: ${reason}`);
+      } else {
+        logInfo(`✗ Socket disconnected: Guest user | Socket ID: ${socketId} | Reason: ${reason}`);
+      }
+      
+      const remainingConnections = io.engine.clientsCount;
+      logInfo(`Total active socket connections: ${remainingConnections}`);
     });
   });
 

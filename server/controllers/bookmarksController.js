@@ -181,12 +181,12 @@ const upsertBookmark = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const storyDocument = await Story.findById(req.body.storyId).lean();
   if (!storyDocument) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   const story = serializeDoc(storyDocument);
   if (!canViewStory(story, req.user)) {
-    throw httpError(403, "Lá»—i: Báº¡n khÃ´ng cÃ³ quyá»n bookmark truyá»‡n nÃ y.");
+    throw httpError(403, "Lỗi: Báº¡n không có quyờn bookmark truyện này.");
   }
 
   const normalizedChapterId = normalizeId(req.body.chapterId);
@@ -204,7 +204,7 @@ const upsertBookmark = asyncHandler(async (req, res) => {
   if (normalizedPageIndex !== null && normalizedParagraphIndex !== null) {
     throw httpError(
       400,
-      "Lá»—i: Bookmark chá»‰ cÃ³ thá»ƒ trá» Ä‘áº¿n má»™t trang hoáº·c má»™t Ä‘oáº¡n.",
+      "Lỗi: Bookmark chờ‰ có thờƒ trờ đến một trang hoặc mờ™t đoạn.",
     );
   }
 
@@ -214,48 +214,48 @@ const upsertBookmark = asyncHandler(async (req, res) => {
       normalizedTextSnippet !== null) &&
     !normalizedChapterId
   ) {
-    throw httpError(400, "Lá»—i: Cáº§n cÃ³ chÆ°Æ¡ng cho bookmark theo trang hoáº·c Ä‘oáº¡n.");
+    throw httpError(400, "Lỗi: Cần có chương cho bookmark theo trang hoặc đoạn.");
   }
 
   if (normalizedTextSnippet !== null && normalizedParagraphIndex === null) {
-    throw httpError(400, "Lá»—i: Cáº§n cÃ³ chá»‰ sá»‘ Ä‘oáº¡n khi lÆ°u trÃ­ch Ä‘oáº¡n vÄƒn báº£n.");
+    throw httpError(400, "Lỗi: Cần có chờ‰ sờ‘ đoạn khi lưu trích đoạn văn bản.");
   }
 
   if (story.type === "MANGA") {
     if (normalizedParagraphIndex !== null || normalizedTextSnippet !== null) {
-      throw httpError(400, "Lá»—i: Bookmark manga pháº£i trá» Ä‘áº¿n má»™t trang.");
+      throw httpError(400, "Lỗi: Bookmark manga phải trờ đến một trang.");
     }
   } else if (normalizedPageIndex !== null) {
-    throw httpError(400, "Lá»—i: Bookmark novel pháº£i trá» Ä‘áº¿n má»™t Ä‘oáº¡n.");
+    throw httpError(400, "Lỗi: Bookmark novel phải trờ đến một đoạn.");
   }
 
   let chapter = null;
   if (normalizedChapterId) {
     const chapterDocument = await Chapter.findById(normalizedChapterId).lean();
     if (!chapterDocument) {
-      throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y chÆ°Æ¡ng!");
+      throw httpError(400, "Lỗi: Không tìm thấy chương!");
     }
 
     if (String(chapterDocument.storyId) !== story.id) {
-      throw httpError(400, "Lá»—i: ChÆ°Æ¡ng khÃ´ng thuá»™c truyá»‡n nÃ y.");
+      throw httpError(400, "Lỗi: Chương không thuộc truyện này.");
     }
 
     if (
       !isApprovedStatus(chapterDocument.approvalStatus) &&
       !canViewStory(story, req.user)
     ) {
-      throw httpError(403, "Lá»—i: Báº¡n khÃ´ng cÃ³ quyá»n bookmark chÆ°Æ¡ng nÃ y.");
+      throw httpError(403, "Lỗi: Báº¡n không có quyờn bookmark chương này.");
     }
 
     chapter = serializeDoc(chapterDocument);
 
     if (!canViewChapterForBookmark(chapter, story, req.user)) {
-      throw httpError(403, "Lá»—i: Báº¡n khÃ´ng cÃ³ quyá»n bookmark chÆ°Æ¡ng nÃ y.");
+      throw httpError(403, "Lỗi: Báº¡n không có quyờn bookmark chương này.");
     }
 
     if (normalizedPageIndex !== null) {
       if (normalizedPageIndex < 0 || normalizedPageIndex >= ensureArray(chapter.pages).length) {
-        throw httpError(400, "Lá»—i: Chá»‰ sá»‘ trang vÆ°á»£t ngoÃ i pháº¡m vi.");
+        throw httpError(400, "Lỗi: Chỉ số trang vượt ngoài phạm vi.");
       }
 
       if (normalizedNote === null) {
@@ -269,7 +269,7 @@ const upsertBookmark = asyncHandler(async (req, res) => {
         normalizedParagraphIndex < 0 ||
         normalizedParagraphIndex >= paragraphs.length
       ) {
-        throw httpError(400, "Lá»—i: Chá»‰ sá»‘ Ä‘oáº¡n vÆ°á»£t ngoÃ i pháº¡m vi.");
+        throw httpError(400, "Lỗi: Chỉ số đoạn vượt ngoài phạm vi.");
       }
 
       if (normalizedNote === null) {
@@ -339,11 +339,11 @@ const deleteBookmark = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const bookmark = await Bookmark.findById(req.params.id);
   if (!bookmark) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y bookmark!");
+    throw httpError(400, "Lỗi: Không tìm thấy bookmark!");
   }
 
   if (String(bookmark.userId) !== String(user.id)) {
-    throw httpError(403, "Lá»—i: Báº¡n khÃ´ng cÃ³ quyá»n xÃ³a bookmark nÃ y.");
+    throw httpError(403, "Lỗi: Báº¡n không có quyờn xóa bookmark này.");
   }
 
   await Bookmark.deleteMany({
@@ -351,7 +351,7 @@ const deleteBookmark = asyncHandler(async (req, res) => {
     storyId: bookmark.storyId,
   });
 
-  res.json(buildMessage("ÄÃ£ xÃ³a bookmark thÃ nh cÃ´ng!"));
+  res.json(buildMessage("Đã xóa bookmark thành công!"));
 });
 
 module.exports = {
