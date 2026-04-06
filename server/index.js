@@ -9,7 +9,7 @@ const {
 const createApp = require("./app");
 const env = require("./config/env");
 const { connectDatabase } = require("./config/db/mongoose");
-const { initializeRealtime } = require("./services/realtime");
+const { initializeRealtime } = require("./config/socket");
 const { ensureRoles } = require("./services/roleService");
 
 installConsoleCapture();

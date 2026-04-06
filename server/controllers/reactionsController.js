@@ -13,7 +13,7 @@ const {
   loadTargetSummary,
   loadTargetSummaryPair,
 } = require("../services/reactionSummary");
-const { emitReactionUpdated } = require("../services/realtime");
+const { emitReactionUpdated } = require("../config/socket");
 
 function normalizeTargetType(value) {
   const targetType = String(value || "").trim().toUpperCase();

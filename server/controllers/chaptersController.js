@@ -2,7 +2,7 @@ const Chapter = require("../models/chapter");
 const Notification = require("../models/notification");
 const Story = require("../models/story");
 const User = require("../models/user");
-const { emitNotificationsCreated } = require("../services/realtime");
+const { emitNotificationsCreated } = require("../config/socket");
 const {
   CHAPTER_ACCESS_MODES,
   buildStoryMonetizationState,

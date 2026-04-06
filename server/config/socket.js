@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
-const env = require("../config/env");
-const { isAllowedOrigin } = require("../config/cors");
+const env = require("./env");
+const { isAllowedOrigin } = require("./cors");
 const { VALID_TARGET_TYPES } = require("../models/reaction");
 const { serializeDoc } = require("../utils/serialize");
 const { logInfo, logError } = require("../utils/logger");
@@ -346,28 +346,66 @@ function initializeRealtime(httpServer) {
     const totalConnections = io.engine.clientsCount;
     logInfo(`Total active socket connections: ${totalConnections}`);
 
+    // Error handling
+    socket.on("error", (error) => {
+      logError(`Socket error for ${socketId}:`, error);
+    });
+
     socket.on(REACTION_SUBSCRIBE_EVENT, (payload) => {
-      joinReactionTargets(socket, payload);
+      try {
+        logInfo(`[${socketId}] Received reaction:subscribe - ${JSON.stringify(payload)}`);
+        joinReactionTargets(socket, payload);
+        logInfo(`[${socketId}] Successfully subscribed to reactions`);
+      } catch (error) {
+        logError(`[${socketId}] Error in reaction:subscribe:`, error);
+      }
     });
 
     socket.on(REACTION_UNSUBSCRIBE_EVENT, (payload) => {
-      leaveReactionTargets(socket, payload);
+      try {
+        logInfo(`[${socketId}] Received reaction:unsubscribe`);
+        leaveReactionTargets(socket, payload);
+      } catch (error) {
+        logError(`[${socketId}] Error in reaction:unsubscribe:`, error);
+      }
     });
 
     socket.on(CHAPTER_PRESENCE_SUBSCRIBE_EVENT, (payload) => {
-      joinChapterPresence(socket, payload);
+      try {
+        logInfo(`[${socketId}] Received chapter:presence:subscribe - ${JSON.stringify(payload)}`);
+        joinChapterPresence(socket, payload);
+        logInfo(`[${socketId}] Successfully subscribed to chapter presence`);
+      } catch (error) {
+        logError(`[${socketId}] Error in chapter:presence:subscribe:`, error);
+      }
     });
 
     socket.on(CHAPTER_PRESENCE_UNSUBSCRIBE_EVENT, (payload) => {
-      leaveChapterPresence(socket, payload);
+      try {
+        logInfo(`[${socketId}] Received chapter:presence:unsubscribe`);
+        leaveChapterPresence(socket, payload);
+      } catch (error) {
+        logError(`[${socketId}] Error in chapter:presence:unsubscribe:`, error);
+      }
     });
 
     socket.on(COMMENT_SUBSCRIBE_EVENT, (payload) => {
-      joinCommentTargets(socket, payload);
+      try {
+        logInfo(`[${socketId}] Received comment:subscribe - ${JSON.stringify(payload)}`);
+        joinCommentTargets(socket, payload);
+        logInfo(`[${socketId}] Successfully subscribed to comments`);
+      } catch (error) {
+        logError(`[${socketId}] Error in comment:subscribe:`, error);
+      }
     });
 
     socket.on(COMMENT_UNSUBSCRIBE_EVENT, (payload) => {
-      leaveCommentTargets(socket, payload);
+      try {
+        logInfo(`[${socketId}] Received comment:unsubscribe`);
+        leaveCommentTargets(socket, payload);
+      } catch (error) {
+        logError(`[${socketId}] Error in comment:unsubscribe:`, error);
+      }
     });
 
     socket.on("disconnecting", () => {

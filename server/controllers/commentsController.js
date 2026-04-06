@@ -16,7 +16,7 @@ const {
   emitCommentCreated,
   emitCommentDeleted,
   emitNotificationsCreated,
-} = require("../services/realtime");
+} = require("../config/socket");
 
 const COMMENT_NOTIFICATION_TYPES = {
   REPLY: "COMMENT_REPLY",
