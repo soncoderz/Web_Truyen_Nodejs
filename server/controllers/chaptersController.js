@@ -125,8 +125,11 @@ async function sendNewChapterNotifications(story, chapter) {
 
   emitNotificationsCreated(notifications);
 }
-
-const listManageStoryChapters = asyncHandler(async (req, res) => {
+/**
+ * Lay danh sach chuong cua mot truyen cho admin quan ly
+ * @param {Object} req - Express request object, chua storyId trong params
+ * @param {Object} res - Express response object
+ */const listManageStoryChapters = asyncHandler(async (req, res) => {
   if (!isObjectId(req.params.storyId)) {
     throw httpError(400, "Lỗi: Mã truyện khÄ‚Â´ng hợp lệ.");
   }
@@ -146,6 +149,12 @@ const listManageStoryChapters = asyncHandler(async (req, res) => {
   res.json(chapters.map(serializeDoc));
 });
 
+/**
+ * Lay danh sach chuong cua mot truyen cho doc
+ * Chi hien thi tung chuong da duyet, co kiem tra quyen truy cap
+ * @param {Object} req - Express request object, chua storyId trong params
+ * @param {Object} res - Express response object
+ */
 const listStoryChapters = asyncHandler(async (req, res) => {
   if (!isObjectId(req.params.storyId)) {
     return res.json([]);
@@ -189,6 +198,11 @@ const listStoryChapters = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * Lay danh sach chuong cua nguoi dung hien tai
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const listMyChapters = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const chapters = await Chapter.find({ uploaderId: user.id })
@@ -197,6 +211,11 @@ const listMyChapters = asyncHandler(async (req, res) => {
   res.json(chapters.map(serializeDoc));
 });
 
+/**
+ * Lay danh sach chuong can reviewed
+ * @param {Object} req - Express request object, chua approvalStatus, storyId trong query
+ * @param {Object} res - Express response object
+ */
 const listReviewChapters = asyncHandler(async (req, res) => {
   const query = {
     ...buildApprovalQuery(req.query.approvalStatus || "PENDING"),
@@ -209,7 +228,9 @@ const listReviewChapters = asyncHandler(async (req, res) => {
   const chapters = await Chapter.find(query).sort({ updatedAt: -1 }).lean();
   res.json(chapters.map(serializeDoc));
 });
-
+// Lay chi tiet chuong - access control + monetization (early access, purchase, rental)
+// Validate: ID format, story/chapter exist, view perm, read perm, approval status
+// Tra ve: full chapter data OR locked response voi lockReason + accessPrice
 const getChapterById = asyncHandler(async (req, res) => {
   const optional = String(req.query.optional || "") === "1";
   if (!isObjectId(req.params.id)) {
@@ -261,7 +282,7 @@ const getChapterById = asyncHandler(async (req, res) => {
       });
       return res
         .status(402)
-        .json(buildMessage("Lỗi: Hãy mua truyện có báÂºÂ£n quyáÂ»Ân nÄ‚Â y trước khi Ã„â€˜áÂ»Âc."));
+        .json(buildMessage("Lỗi: Hãy mua truyện có bản quyền này trước khi đọc."));
     }
 
     return optional
@@ -279,8 +300,11 @@ const getChapterById = asyncHandler(async (req, res) => {
   }
 
   res.json(serializeDoc(chapter));
-});
+}); 
 
+// Tao chuong moi cho truyen - Step by step workflow
+// Admin: phe duyet ngay luc tao, User: cho phe duyet cua admin
+// Kiem tra: truyen co ton tai, user co quyen quan ly, chapter number ko trung
 const createChapter = asyncHandler(async (req, res) => {
   const [user, story, existingChapter] = await Promise.all([
     getCurrentUserDocument(req),
@@ -336,8 +360,12 @@ const createChapter = asyncHandler(async (req, res) => {
 
   res.json(serializeDoc(chapter));
 });
-
-const updateChapter = asyncHandler(async (req, res) => {
+/**
+ * Cap nhat thong tin chuong
+ * Co kiem tra xung dot so chuong, kiem tra quyen quan ly
+ * @param {Object} req - Express request object, chua chapter ID trong params
+ * @param {Object} res - Express response object
+ */const updateChapter = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
     throw httpError(400, "Lỗi: Không tìm thấy chương!");
@@ -408,8 +436,12 @@ const regenerateChapterSummary = asyncHandler(async (req, res) => {
 
   res.json(serializeDoc(chapter));
 });
-
-const updateChapterApproval = asyncHandler(async (req, res) => {
+/**
+ * Cap nhat trang thai phe duyet cua chuong
+ * Tu dong gui thong bao den theo doi neu chuong duoc phe duyet
+ * @param {Object} req - Express request object, chua chapter ID trong params,  approvalStatus trong body
+ * @param {Object} res - Express response object
+ */const updateChapterApproval = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
     throw httpError(400, "Lỗi: Không tìm thấy chương!");
@@ -435,8 +467,11 @@ const updateChapterApproval = asyncHandler(async (req, res) => {
 
   res.json(serializeDoc(chapter));
 });
-
-const deleteChapter = asyncHandler(async (req, res) => {
+/**
+ * Xoa chuong va xoa tat ca binh luan lien quan
+ * @param {Object} req - Express request object, chua chapter ID trong params
+ * @param {Object} res - Express response object
+ */const deleteChapter = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
     throw httpError(400, "Lỗi: Không tìm thấy chương!");

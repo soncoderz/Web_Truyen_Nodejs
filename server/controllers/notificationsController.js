@@ -40,6 +40,12 @@ async function enrichNotifications(notifications) {
   });
 }
 
+/**
+ * Lấy danh sách tất cả thông báo của người dùng hiện tại
+ * Sắp xếp theo thửd tự từ mới nhất đến cũ
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const listNotifications = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const notifications = await Notification.find({ userId: user.id })
@@ -48,6 +54,11 @@ const listNotifications = asyncHandler(async (req, res) => {
   res.json(await enrichNotifications(notifications));
 });
 
+/**
+ * Lấy số lượng thông báo chưa đọc của người dùng
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const getUnreadCount = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const count = await Notification.countDocuments({
@@ -57,6 +68,11 @@ const getUnreadCount = asyncHandler(async (req, res) => {
   res.json({ count });
 });
 
+/**
+ * Đánh dấu một thông báo là "đã đọc"
+ * @param {Object} req - Express request object, chứa notification ID trong params
+ * @param {Object} res - Express response object
+ */
 const markRead = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const notification = await Notification.findOne({
@@ -73,12 +89,20 @@ const markRead = asyncHandler(async (req, res) => {
   res.json(buildMessage("Notification marked as read!"));
 });
 
+// Đánh dấu tất cả thông báo của người dùng thành trạng thái "đã xem"
 const markAllRead = asyncHandler(async (req, res) => {
+  // Lấy thông tin user hiện hành từ mã xác thực JWT trong request
   const user = await getCurrentUserDocument(req);
+  
+  // Thực hiện lệnh cập nhật hàng loạt trên Database MongoDB
+  // Tìm các thông báo của user (userId) và có trạng thái chưa đọc (isRead: false)
+  // Sau đó thiết lập đè lại trường isRead thành true (đã đọc)
   await Notification.updateMany(
     { userId: user.id, isRead: false },
     { $set: { isRead: true } },
   );
+  
+  // Trả về JSON thông báo thành công cho phía client giao diện
   res.json(buildMessage("All notifications marked as read!"));
 });
 

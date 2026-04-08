@@ -73,6 +73,9 @@ async function hydrateAdminComments(comments) {
   });
 }
 
+// Lay thong ke general cua he thong - counts: story, user, chapter, comment, pending items
+// Query: tong so truyen, user, chapter, binh luan, va so phan doi cho phe duyet (report, story, chapter)
+// Tra ve: counts theo tung loai + danh sach 5 truyen moi nhat (hydrated)
 const getStats = asyncHandler(async (_req, res) => {
   const [
     totalStories,
@@ -106,6 +109,9 @@ const getStats = asyncHandler(async (_req, res) => {
   });
 });
 
+// Lay thong ke xu huong - counts user/story/chapter moi theo khoang thoi gian
+// Tinh toan: hom nay, tuan nay (Mon-Sun), thang nay theo calendar days
+// Tra ve: counts per khoang time cho tung loai entity (users, stories, chapters)
 const getStatsTrends = asyncHandler(async (_req, res) => {
   const now = new Date();
   const startOfToday = new Date(now);
@@ -147,6 +153,11 @@ const getStatsTrends = asyncHandler(async (_req, res) => {
   });
 });
 
+/**
+ * Lay truyen hot nhat theo doi theo xem va danh gia
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const getStatsHot = asyncHandler(async (_req, res) => {
   const [topByViews, topByRating] = await Promise.all([
     Story.find({}).sort({ views: -1 }).limit(10).lean(),
@@ -159,6 +170,11 @@ const getStatsHot = asyncHandler(async (_req, res) => {
   });
 });
 
+/**
+ * Lay phan phoi: theo loai (manga/novel), trang thai (dang ra/hoan thanh/drop), theo vai tro
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const getDistribution = asyncHandler(async (_req, res) => {
   const [
     mangaCount,
@@ -209,6 +225,11 @@ const getDistribution = asyncHandler(async (_req, res) => {
   });
 });
 
+/**
+ * Lay danh sach binh luan theo pham vi (story/chapter/page) voi tim kiem
+ * @param {Object} req - Express request object, chua limit, scope, q trong query
+ * @param {Object} res - Express response object
+ */
 const listComments = asyncHandler(async (req, res) => {
   const limit = Math.min(200, Math.max(20, Number(req.query.limit) || 80));
   const scope = String(req.query.scope || "ALL").trim().toUpperCase();

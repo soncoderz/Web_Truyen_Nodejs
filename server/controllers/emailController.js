@@ -10,6 +10,12 @@ function pickValue(req, key) {
   return req.body?.[key] ?? req.query?.[key];
 }
 
+/**
+ * Gửi email đơn giản với nội dung text
+ * Hó trợ lấy thông tin từ request body hoặc query params
+ * @param {Object} req - Express request object, chứa toEmail, subject, content
+ * @param {Object} res - Express response object
+ */
 const sendSimple = asyncHandler(async (req, res) => {
   const success = await sendSimpleEmail(
     pickValue(req, "toEmail"),
@@ -25,6 +31,11 @@ const sendSimple = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Gửi email HTML với nội dung định dạng
+ * @param {Object} req - Express request object, chứa toEmail, toName, subject, htmlContent
+ * @param {Object} res - Express response object
+ */
 const sendHtml = asyncHandler(async (req, res) => {
   const success = await sendHtmlEmail(
     pickValue(req, "toEmail"),
@@ -41,6 +52,11 @@ const sendHtml = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Gửi email xác minh với link
+ * @param {Object} req - Express request object, chứa toEmail, verificationLink
+ * @param {Object} res - Express response object
+ */
 const sendVerification = asyncHandler(async (req, res) => {
   const success = await sendVerificationEmail(
     pickValue(req, "toEmail"),
@@ -55,6 +71,11 @@ const sendVerification = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Gửi email thông báo với tiêu đề và nội dung
+ * @param {Object} req - Express request object, chứa toEmail, title, message
+ * @param {Object} res - Express response object
+ */
 const sendNotification = asyncHandler(async (req, res) => {
   const success = await sendNotificationEmail(
     pickValue(req, "toEmail"),
@@ -70,6 +91,11 @@ const sendNotification = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Kiểm tra tạo thị dịch vụ email
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 function health(_req, res) {
   res.json({
     status: "ok",

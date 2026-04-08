@@ -4,8 +4,11 @@ const {
   ensureCloudinaryConfigured,
   uploadBuffer,
 } = require("../services/cloudinaryUploadService");
-
-const uploadImage = asyncHandler(async (req, res) => {
+/**
+ * Tai len mot hinh anh den Cloudinary
+ * @param {Object} req - Express request object, chua file trong multipart form-data
+ * @param {Object} res - Express response object
+ */const uploadImage = asyncHandler(async (req, res) => {
   ensureCloudinaryConfigured();
   if (!req.file) {
     throw httpError(400, "Tải lên thất bại: Thiếu tệp.");
@@ -18,8 +21,11 @@ const uploadImage = asyncHandler(async (req, res) => {
 
   res.json({ url: result.secure_url });
 });
-
-const uploadImages = asyncHandler(async (req, res) => {
+/**
+ * Tai len nhieu hinh anh cua chuong manga den Cloudinary
+ * @param {Object} req - Express request object, chua files trong multipart form-data
+ * @param {Object} res - Express response object
+ */const uploadImages = asyncHandler(async (req, res) => {
   ensureCloudinaryConfigured();
   if (!req.files || req.files.length === 0) {
     throw httpError(400, "Tải lên thất bại: Thiếu tệp.");

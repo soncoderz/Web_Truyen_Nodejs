@@ -63,19 +63,29 @@ function serializeSuggestedStories(stories) {
   }));
 }
 
+// Chat voi AI de nhan tro van (recommendation) hoac tim truyen theo mo ta
+// AI se xem la danh sach toan bo truyen va goi y nhung cuon phu hop voi message
+// Tra ve: AI reply + source truyen goi y + serialized story list
 const chatWithCatalog = asyncHandler(async (req, res) => {
+  // 1. Extract message tu request body - trim whitespace
   const message = String(req.body?.message || "").trim();
+  
+  // 2. Kiem tra message ko trong
   if (!message) {
     return res.status(400).json(buildMessage("Vui long nhap noi dung chat."));
   }
 
+  // 3. Load danh sach toan bo truyen da phe duyet (voi cache 15s TTL)
   const stories = await loadCatalogStories();
+  
+  // 4. Goi AI service: truyen message + chat history + story list, nhan ve recommendation
   const result = await replyWithCatalogChat({
     message,
     history: Array.isArray(req.body?.history) ? req.body.history : [],
     stories,
   });
 
+  // 5. Serialize story list, tra ve: AI reply + source truyen + recommended stories
   res.json({
     reply: result.reply,
     source: result.source,

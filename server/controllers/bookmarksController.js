@@ -162,6 +162,12 @@ async function toBookmarkResponse(bookmark, currentUser) {
   return serializeBookmarkResponse(serializeDoc(bookmark), story, chapter);
 }
 
+/**
+ * Lấy danh sách tất cả các dấu trang của người dùng hiện tại
+ * Chì hiện thị một dấu trang chính cho mỗi truyện
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const listBookmarks = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const bookmarks = await Bookmark.find({ userId: user.id })
@@ -177,6 +183,9 @@ const listBookmarks = asyncHandler(async (req, res) => {
   res.json(responses);
 });
 
+// Them hoac cap nhat dau trang - ho tro 4 loai: story, chapter, page (manga), paragraph (novel)
+// Validation phuc tap: MANGA vs NOVEL rules, chi so pham vi, co quyen xem/bookmark
+// Logic: tim story & chapter ton tai, validate permissions, xoa bookmark cu cua story, save moi
 const upsertBookmark = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const storyDocument = await Story.findById(req.body.storyId).lean();
@@ -335,6 +344,11 @@ const upsertBookmark = asyncHandler(async (req, res) => {
   res.json(await toBookmarkResponse(bookmark, req.user));
 });
 
+/**
+ * Xóa tất cả dấu trang của người dùng cho một truyện
+ * @param {Object} req - Express request object, chứa bookmark ID trong params
+ * @param {Object} res - Express response object
+ */
 const deleteBookmark = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const bookmark = await Bookmark.findById(req.params.id);

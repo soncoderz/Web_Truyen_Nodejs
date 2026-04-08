@@ -103,6 +103,11 @@ function validateLocation(story, chapter, pageIndex, paragraphIndex) {
   return null;
 }
 
+/**
+ * Lay danh sach tat ca ghi chu cua nguoi dung cho mot truyen va chuong
+ * @param {Object} req - Express request object, chua storyId va chapterId trong params
+ * @param {Object} res - Express response object
+ */
 const listReaderNotes = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const { story, chapter } = await resolveContext(
@@ -121,6 +126,9 @@ const listReaderNotes = asyncHandler(async (req, res) => {
   res.json(notes.map(serializeDoc));
 });
 
+// Them hoac cap nhat ghi chu doc - ho tro MANGA (page) va NOVEL (paragraph)
+// Validation phuc tap: chi co 1 trong 2, chi so phai within range, co note text
+// Upsert: neu da co ghi chu o vi tri nay thi cap nhat, ko thi tao moi
 const upsertReaderNote = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const note = normalizeNote(req.body.note);
@@ -181,6 +189,11 @@ const upsertReaderNote = asyncHandler(async (req, res) => {
   res.json(serializeDoc(savedNote));
 });
 
+/**
+ * Xoa mot ghi chu doc cua nguoi dung
+ * @param {Object} req - Express request object, chua storyId, chapterId, pageIndex/paragraphIndex trong params/query
+ * @param {Object} res - Express response object
+ */
 const deleteReaderNote = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const pageIndex =

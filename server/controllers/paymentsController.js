@@ -169,6 +169,11 @@ function isMomoReady() {
   return env.isMomoConfigured && Boolean(env.frontendUrl) && Boolean(env.backendUrl);
 }
 
+/**
+ * Lay thong tin vi tien, xu, giao dich tien gan day
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const getWallet = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   ensureRewardState(user);
@@ -193,6 +198,9 @@ const getWallet = asyncHandler(async (req, res) => {
   });
 });
 
+// Doi tien (VND) sang xu voi ti le quy dinh
+// So tien phai >= MIN_WALLET_TO_COINS_EXCHANGE_AMOUNT va chia het cho COIN_EXCHANGE_RATE
+// Vi du: COIN_EXCHANGE_RATE=100 thi chi doi duoc 100, 200, 300 VND, ko doi 150 VND
 const exchangeWalletToCoins = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   ensureRewardState(user);
@@ -252,13 +260,17 @@ const exchangeWalletToCoins = asyncHandler(async (req, res) => {
   });
 });
 
+// Mở khóa truyện - cho phép người dùng mua quyền truy cập toàn bộ truyện có bản quyền
+// Hỗ trợ 2 phương thức thanh toán: VND (ví) hoặc XU (tiền xu)
 const unlockStory = asyncHandler(async (req, res) => {
+  // 1. Lấy thông tin User và Story từ Database
   const [user, story] = await Promise.all([
     getCurrentUserDocument(req),
     Story.findById(req.params.storyId),
   ]);
   ensureRewardState(user);
 
+  // 2. Kiểm tra xem truyện có tồn tại không
   if (!story) {
     return res.status(400).json(buildMessage("Lỗi: Không tìm thấy truyện!"));
   }
@@ -370,17 +382,22 @@ const unlockStory = asyncHandler(async (req, res) => {
   });
 });
 
+// Mở khóa chương - mua quyền truy cập một chương có tính phí (early access hoặc premium)
+// Kiểm tra quyền truy cập và trạng thái khóa trước khi cho phép mua
 const unlockChapter = asyncHandler(async (req, res) => {
+  // 1. Lấy thông tin User hiện tại và Chương từ Database
   const [user, chapter] = await Promise.all([
     getCurrentUserDocument(req),
     Chapter.findById(req.params.chapterId),
   ]);
   ensureRewardState(user);
 
+  // 2. Kiểm tra chương có tồn tại không
   if (!chapter) {
     return res.status(400).json(buildMessage("Lỗi: Khong tim thay chuong."));
   }
 
+  // 3. Lấy thông tin Truyện mà Chương này thuộc về
   const story = await Story.findById(chapter.storyId);
   if (!story) {
     return res.status(400).json(buildMessage("Lỗi: Khong tim thay truyen."));
@@ -450,6 +467,11 @@ const unlockChapter = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Mo khoa goi combo cac chuong voi gia uu dai
+ * @param {Object} req - Express request object, chua storyId trong params, chapterIds trong body
+ * @param {Object} res - Express response object
+ */
 const unlockChapterBundle = asyncHandler(async (req, res) => {
   const [user, story, chapters] = await Promise.all([
     getCurrentUserDocument(req),

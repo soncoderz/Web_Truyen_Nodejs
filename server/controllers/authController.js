@@ -14,6 +14,12 @@ const googleClient = env.googleClientId
   ? new OAuth2Client(env.googleClientId)
   : null;
 
+/**
+ * Ký tạo JWT token cho người dùng với thông tin chi tiết (id, username, email, roles, avatar)
+ * @param {Object} user - Đối tượng người dùng chứa id, username, email, avatar
+ * @param {Array} roles - Mảng các role của người dùng
+ * @returns {string} - JWT token đã được ký
+ */
 function signJwt(user, roles) {
   return jwt.sign(
     {
@@ -30,6 +36,11 @@ function signJwt(user, roles) {
   );
 }
 
+/**
+ * Xây dựng dữ liệu xác thực chứa thông tin user, roles, và JWT token
+ * @param {Object} userDocument - MongoDB document của user
+ * @returns {Promise<Object>} - Object chứa token, user info, và roles
+ */
 async function buildAuthPayload(userDocument) {
   const user = serializeDoc(userDocument);
   const roles = await resolveRoleNames(userDocument);
@@ -37,6 +48,12 @@ async function buildAuthPayload(userDocument) {
   return serializeJwtResponse({ token, user, roles });
 }
 
+/**
+ * Xử lý đăng nhập với username và password
+ * Kiểm tra thông tin đăng nhập, so sánh password, và trả về JWT token nếu hợp lệ
+ * @param {Object} req - Express request object, chứa username và password trong body
+ * @param {Object} res - Express response object
+ */
 const signIn = asyncHandler(async (req, res) => {
   const user = await User.findOne({ username: req.body.username });
   if (!user) {
@@ -58,17 +75,23 @@ const signIn = asyncHandler(async (req, res) => {
   res.json(await buildAuthPayload(user));
 });
 
+// Dang ky tai khoan moi - kiem tra duplicate username/email, hash password, tao user ROLE_USER
+// Validation: username, email phai unique trong database
+// Hash password: bcryptjs 10 rounds, provider = "local"
 const signUp = asyncHandler(async (req, res) => {
+  // 1. Kiem tra username chua ton tai trong hdb
   const existingUsername = await User.exists({ username: req.body.username });
   if (existingUsername) {
     return res.status(400).json(buildMessage("Lỗi: Ten dang nhap da ton tai!"));
   }
 
+  // 2. Kiem tra email chua duoc dang ky
   const existingEmail = await User.exists({ email: req.body.email });
   if (existingEmail) {
     return res.status(400).json(buildMessage("Lỗi: Email da duoc su dung!"));
   }
 
+  // 3. Normalize roles: neu request ko co roles thi mac dinh ROLE_USER, ko thi validate & map
   const requestedRoles = Array.isArray(req.body.roles) ? req.body.roles : [];
   const roleNames =
     requestedRoles.length === 0
@@ -77,6 +100,7 @@ const signUp = asyncHandler(async (req, res) => {
           String(role).toLowerCase() === "admin" ? "ROLE_ADMIN" : "ROLE_USER",
         );
 
+  // 4. Tao user document trong database: username, email, hashed password, roles
   await User.create({
     username: req.body.username,
     email: req.body.email,
@@ -85,9 +109,16 @@ const signUp = asyncHandler(async (req, res) => {
     roles: await getRoleRefs(Array.from(new Set(roleNames))),
   });
 
+  // 5. Tra ve message success - client se redirect den login screen
   res.json(buildMessage("Dang ky tai khoan thành công!"));
 });
 
+/**
+ * Xử lý đăng nhập/đăng ký qua Google OAuth
+ * Xác minh ID token từ Google, tìm hoặc tạo user, cập nhật thông tin avatar
+ * @param {Object} req - Express request object, chứa credential (Google ID token) trong body
+ * @param {Object} res - Express response object
+ */
 const signInWithGoogle = asyncHandler(async (req, res) => {
   try {
     if (!googleClient || !env.googleClientId) {
@@ -157,6 +188,12 @@ const signInWithGoogle = asyncHandler(async (req, res) => {
   }
 });
 
+/**
+ * Xử lý quên mật khẩu - gửi email reset với token
+ * Tạo token reset, lưu vào database, và gửi email chứa link đặt lại mật khẩu
+ * @param {Object} req - Express request object, chứa email trong body
+ * @param {Object} res - Express response object
+ */
 const forgotPassword = asyncHandler(async (req, res) => {
   const user = await User.findOne({ email: req.body.email });
   if (!user) {
@@ -176,6 +213,12 @@ const forgotPassword = asyncHandler(async (req, res) => {
   res.json(buildMessage("Da gui email dat lai mat khau thành công."));
 });
 
+/**
+ * Xử lý đặt lại mật khẩu bằng token reset
+ * Xác minh token hợp lệ chưa hết hạn, mã hóa mật khẩu mới, xóa token
+ * @param {Object} req - Express request object, chứa token và newPassword trong body
+ * @param {Object} res - Express response object
+ */
 const resetPassword = asyncHandler(async (req, res) => {
   const user = await User.findOne({ resetToken: req.body.token });
   if (!user) {
