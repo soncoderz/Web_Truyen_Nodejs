@@ -5,6 +5,7 @@ const {
   uploadBuffer,
 } = require("./cloudinaryUploadService");
 
+// Cac hang so ben duoi phuc vu viec quet trang manga va loc dung anh chapter.
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -50,6 +51,7 @@ const THUMBNAIL_URL_HINTS = /(\/thumbs?\/|[_-]thumb(?:nail)?\b)/i;
 
 let cachedPuppeteer = undefined;
 
+// Lam sach thong diep loi truoc khi tra ve client.
 function sanitizeMessage(message, fallback = "Unknown error.") {
   if (!message || !String(message).trim()) {
     return fallback;
@@ -153,6 +155,7 @@ function normalizeImageUrl(value, baseUrl) {
   }
 }
 
+// Heuristic cham diem de tach anh chapter khoi avatar/banner/thumbnail/quang cao.
 function isLikelyPageImage(candidate, preferredScope) {
   const metaText = [candidate.alt, candidate.className, candidate.id]
     .filter(Boolean)
@@ -202,6 +205,7 @@ function isLikelyPageImage(candidate, preferredScope) {
   return score >= (preferredScope ? -5 : 5);
 }
 
+// Quet mot scope HTML, nhat cac URL anh hop le va loai bo anh trung/lac de.
 function collectCandidates($, roots, baseUrl, preferredScope = false) {
   const candidates = [];
   const seen = new Set();
@@ -287,6 +291,7 @@ function collectCandidates($, roots, baseUrl, preferredScope = false) {
   return candidates;
 }
 
+// Thu lay anh trong cac vung noi dung uu tien truoc, neu that bai moi quet toan trang.
 function extractImagesFromHtml(html, pageUrl, titleOverride = "") {
   const $ = load(String(html || ""));
   let images = [];
@@ -332,6 +337,7 @@ async function loadOptionalPuppeteer() {
   return cachedPuppeteer;
 }
 
+// Cach quet nhe nhat: dung fetch lay HTML tinh roi parse bang cheerio.
 async function scanWithFetch(url) {
   const response = await fetch(url, {
     headers: getFetchHeaders(),
@@ -347,6 +353,7 @@ async function scanWithFetch(url) {
   return extractImagesFromHtml(html, response.url || url);
 }
 
+// Cach quet nang hon cho cac site render dong/lazy-load bang trinh duyet that.
 async function scanWithPuppeteer(url) {
   const puppeteer = await loadOptionalPuppeteer();
   if (!puppeteer) {
@@ -382,6 +389,7 @@ async function scanWithPuppeteer(url) {
   }
 }
 
+// API muc cao de quet mot trang manga tu xa va tra ve danh sach anh chapter.
 async function scanRemoteMangaSource({ url, usePuppeteer = false }) {
   const normalizedUrl = normalizeHttpUrl(url, "Loi: URL nguon khong hop le.");
   const puppeteerAvailable = Boolean(await loadOptionalPuppeteer());
@@ -399,6 +407,7 @@ async function scanRemoteMangaSource({ url, usePuppeteer = false }) {
   };
 }
 
+// Tai anh chapter tu nguon goc; giu Referer de giam nguy co bi chan hotlink.
 async function downloadRemoteImage(imageUrl, sourceUrl) {
   const response = await fetch(imageUrl, {
     headers: getFetchHeaders({
@@ -458,6 +467,7 @@ function getImageExtension(imageUrl, contentType) {
   return "jpg";
 }
 
+// Dat ten file on dinh theo thu tu trang, de de quan ly sau khi upload.
 function buildFilename(index, imageUrl, contentType) {
   return `imported_page_${String(index + 1).padStart(3, "0")}.${getImageExtension(
     imageUrl,
@@ -465,6 +475,7 @@ function buildFilename(index, imageUrl, contentType) {
   )}`;
 }
 
+// Tai tung anh tu nguon ngoai roi upload len Cloudinary, dong thoi ghi nhan nhung trang loi.
 async function importRemoteMangaPages({ sourceUrl, imageUrls }) {
   ensureCloudinaryConfigured();
 

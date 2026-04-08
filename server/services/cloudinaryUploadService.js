@@ -3,18 +3,21 @@ const { v2: cloudinary } = require("cloudinary");
 const env = require("../config/env");
 const httpError = require("../utils/httpError");
 
+// Khoi tao Cloudinary mot lan bang cau hinh tu bien moi truong.
 cloudinary.config({
   cloud_name: env.cloudinaryCloudName,
   api_key: env.cloudinaryApiKey,
   api_secret: env.cloudinaryApiSecret,
 });
 
+// Chan cac luong upload khi dich vu chua duoc cau hinh day du.
 function ensureCloudinaryConfigured() {
   if (!env.isCloudinaryConfigured) {
     throw httpError(503, "Tai len that bai: Cloudinary chua duoc cau hinh.");
   }
 }
 
+// Cloudinary upload_stream nhan stream, vi vay buffer can duoc doi thanh Readable.
 function uploadBuffer(buffer, options) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(options, (error, result) => {

@@ -5,6 +5,7 @@ if (env.sendgridApiKey) {
   sgMail.setApiKey(env.sendgridApiKey);
 }
 
+// Noi duong dan frontend vao base URL, tranh loi du/thieu dau "/".
 function buildFrontendUrl(pathname) {
   const normalizedBase = env.frontendUrl.endsWith("/")
     ? env.frontendUrl.slice(0, -1)
@@ -12,6 +13,7 @@ function buildFrontendUrl(pathname) {
   return `${normalizedBase}${pathname}`;
 }
 
+// Ham gui email tong quat; cac ham ben duoi la wrapper cho tung muc dich.
 async function sendEmail({ toEmail, toName, subject, htmlContent }) {
   if (!env.isSendGridConfigured) {
     return false;
@@ -30,6 +32,7 @@ async function sendEmail({ toEmail, toName, subject, htmlContent }) {
   return true;
 }
 
+// Dung cho cac email HTML don gian, khong can truyen ten nguoi nhan.
 async function sendSimpleEmail(toEmail, subject, content) {
   return sendEmail({
     toEmail,
@@ -38,6 +41,7 @@ async function sendSimpleEmail(toEmail, subject, content) {
   });
 }
 
+// Wrapper ro nghia hon khi can gui email HTML kem ten nguoi nhan.
 async function sendHtmlEmail(toEmail, toName, subject, htmlContent) {
   return sendEmail({
     toEmail,
@@ -47,6 +51,7 @@ async function sendHtmlEmail(toEmail, toName, subject, htmlContent) {
   });
 }
 
+// Mau email xac minh tai khoan sau khi dang ky.
 async function sendVerificationEmail(toEmail, verificationLink) {
   const htmlContent = `
     <html><body>
@@ -61,6 +66,7 @@ async function sendVerificationEmail(toEmail, verificationLink) {
   return sendSimpleEmail(toEmail, "Xac minh Email - Web Tuyen Online", htmlContent);
 }
 
+// Mau email thong bao chung cho cac su kien tren he thong.
 async function sendNotificationEmail(toEmail, title, message) {
   const htmlContent = `
     <html><body>
@@ -73,6 +79,7 @@ async function sendNotificationEmail(toEmail, title, message) {
   return sendSimpleEmail(toEmail, title, htmlContent);
 }
 
+// Tao link reset ve frontend va gui kem token cho nguoi dung.
 async function sendResetPasswordEmail(toEmail, resetToken) {
   const resetLink = buildFrontendUrl(`/reset-password?token=${resetToken}`);
   const htmlContent = `

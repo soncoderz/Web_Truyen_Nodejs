@@ -50,10 +50,12 @@ const DESCRIPTION_PREFIX_PATTERNS = [
   /^transcription\s*:?\s*/iu,
 ];
 
+// Rang gia tri trong mot khoang min-max de giu diem so on dinh.
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+// Chuan hoa text khong dau de so khop title/mo ta/the loai/tac gia.
 function normalizeText(value) {
   return String(value || "")
     .normalize("NFD")
@@ -64,6 +66,7 @@ function normalizeText(value) {
     .trim();
 }
 
+// Tach token co y nghia va loai bo stop word.
 function tokenizeText(value) {
   return normalizeText(value)
     .split(" ")
@@ -154,6 +157,7 @@ function cleanDescriptionText(value) {
   return cleaned.replace(/^[\s"'“”]+/, "").replace(/[\s"'“”]+$/, "").trim();
 }
 
+// Rut story thanh mot "profile" de so sanh do tuong dong giua cac truyen.
 function buildStoryProfile(story) {
   const categories = getCategoryList(story);
   const authors = getAuthorList(story);
@@ -382,6 +386,7 @@ function buildExplanation(title, reasons) {
   return `${title} duoc goi y vi ${fragments[0].charAt(0).toLowerCase()}${fragments[0].slice(1)} va ${fragments[1].charAt(0).toLowerCase()}${fragments[1].slice(1)}.`;
 }
 
+// Cham diem tung story de cu dua tren category, author, keyword, type, status va do pho bien.
 function buildRecommendationItem(baseStory, candidateStory) {
   const baseProfile = buildStoryProfile(baseStory);
   const candidateProfile = buildStoryProfile(candidateStory);
@@ -408,6 +413,7 @@ function buildRecommendationItem(baseStory, candidateStory) {
   if (sameStatus) {
     score += 5;
   }
+  // Category va author trung nhau la tin hieu manh nhat ve su lien quan.
   if (sharedCategories.length > 0) {
     score += Math.min(48, 22 + (sharedCategories.length - 1) * 12);
   }
@@ -477,6 +483,7 @@ function buildRecommendationItem(baseStory, candidateStory) {
   };
 }
 
+// Phuong an du phong khi khong tim duoc story co diem tuong dong ro ret.
 function buildFallbackRecommendations(baseStory, stories, limit) {
   const baseProfile = buildStoryProfile(baseStory);
 
@@ -516,6 +523,7 @@ function buildFallbackRecommendations(baseStory, stories, limit) {
     }));
 }
 
+// Ham public chinh de tao danh sach story de xuat cho story hien tai.
 function buildAiStoryRecommendations(baseStory, candidateStories, options = {}) {
   const limit = Math.max(1, Math.min(Number(options.limit || 6), 12));
   const recommendations = ensureArray(candidateStories)

@@ -1,5 +1,6 @@
 const { ensureArray, normalizeId, normalizeLong, uniqueStrings } = require("../utils/normalize");
 
+// Cac che do mo khoa chapter ma he thong dang ho tro.
 const CHAPTER_ACCESS_MODES = {
   FREE: "FREE",
   PURCHASE: "PURCHASE",
@@ -70,6 +71,7 @@ function sanitizeRentalEntries(value, now = new Date()) {
     .filter(Boolean);
 }
 
+// Tong hop "quyen so huu" cua user thanh cau truc de check truy cap nhanh.
 function buildUserEntitlements(user, now = new Date()) {
   const rentalEntries = sanitizeRentalEntries(user?.rentedStoryAccesses, now);
   const activeRentalMap = new Map(
@@ -128,11 +130,13 @@ function getChapterAccessOffer(chapter) {
   return {
     accessMode,
     accessPrice,
+    // Chapter FREE khong can mua rieng; hai mode con lai co the bat buoc thanh toan.
     requiresDirectPurchase:
       accessMode !== CHAPTER_ACCESS_MODES.FREE && accessPrice > 0,
   };
 }
 
+// Quyet dinh user co duoc doc chapter hay khong, dua tren vai tro, mua truyen, thue hoac mua le.
 function resolveChapterAccess(chapter, story, user, entitlements) {
   const storyLicensed = Boolean(story?.licensed) && normalizeCurrencyAmount(story?.unlockPrice, 0) > 0;
   const storyPurchased = hasStoryPurchase(story, entitlements);
@@ -140,6 +144,7 @@ function resolveChapterAccess(chapter, story, user, entitlements) {
   const chapterPurchased = hasChapterPurchase(chapter, entitlements);
   const chapterOffer = getChapterAccessOffer(chapter);
 
+  // Admin va uploader bo qua toan bo khoa.
   if (isAdminUser(user) || isOwnerEntity(story, user)) {
     return {
       canRead: true,
@@ -152,6 +157,7 @@ function resolveChapterAccess(chapter, story, user, entitlements) {
     };
   }
 
+  // Da mua/thue ca truyen thi mo khoa toan bo chapter.
   if (storyPurchased || rentalExpiresAt) {
     return {
       canRead: true,
@@ -164,6 +170,7 @@ function resolveChapterAccess(chapter, story, user, entitlements) {
     };
   }
 
+  // Mua rieng chapter cung du quyen doc du story chua duoc mo khoa.
   if (chapterPurchased) {
     return {
       canRead: true,
@@ -176,6 +183,7 @@ function resolveChapterAccess(chapter, story, user, entitlements) {
     };
   }
 
+  // Story co ban quyen thi uu tien luat mua ca truyen hoac mua som chapter.
   if (storyLicensed) {
     if (chapterOffer.requiresDirectPurchase) {
       return {
@@ -238,6 +246,7 @@ function roundBundlePrice(value) {
   return Math.max(1000, Math.round(normalized / 1000) * 1000);
 }
 
+// Tao cac combo chapter tra phi de frontend co san goi mua nhieu chuong.
 function buildChapterBundleOffers(story, chapters, entitlements = null) {
   if (!story?.chapterBundleEnabled) {
     return [];
@@ -304,6 +313,7 @@ function findBundleOfferByChapterIds(story, chapters, chapterIds) {
   );
 }
 
+// Gom trang thai monetization cua story de client render mot payload duy nhat.
 function buildStoryMonetizationState(story, user, entitlements) {
   const unlockPrice = normalizeCurrencyAmount(story?.unlockPrice, 0);
   const rentalPrice = normalizeCurrencyAmount(story?.rentalPrice, 0);

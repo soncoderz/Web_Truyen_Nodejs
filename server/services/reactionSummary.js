@@ -1,10 +1,12 @@
 const { Reaction, VALID_EMOTIONS } = require("../models/reaction");
 const { ensureArray } = require("../utils/normalize");
 
+// Key gom targetType + targetId de group reaction tren nhieu doi tuong cung luc.
 function toTargetKey(targetType, targetId) {
   return `${targetType}:${targetId}`;
 }
 
+// Khoi tao summary mac dinh cho target chua co reaction nao.
 function createEmptySummary(targetType, targetId) {
   return {
     targetType,
@@ -16,6 +18,7 @@ function createEmptySummary(targetType, targetId) {
   };
 }
 
+// Top reactions la 3 emotion co so luong cao nhat, dung de hien thi nhanh.
 function decorateSummary(summary) {
   const topReactions = Object.entries(summary.counts)
     .filter(([, count]) => Number(count) > 0)
@@ -35,6 +38,7 @@ function decorateSummary(summary) {
   };
 }
 
+// Gop reaction raw thanh summary tong hop, dong thoi ghi nhan emotion cua current user neu co.
 function buildSummaries(targets, reactions, currentUserId = null) {
   const summaryMap = new Map();
 
@@ -63,12 +67,14 @@ function buildSummaries(targets, reactions, currentUserId = null) {
   return Array.from(summaryMap.values()).map(decorateSummary);
 }
 
+// Tai summary cho mot target duy nhat.
 async function loadTargetSummary(targetType, targetId, currentUserId = null) {
   const reactions = await Reaction.find({ targetType, targetId }).lean();
   const [summary] = buildSummaries([{ targetType, targetId }], reactions, currentUserId);
   return summary || createEmptySummary(targetType, targetId);
 }
 
+// Tra ve ca summary cong khai va summary theo goc nhin cua viewer hien tai.
 async function loadTargetSummaryPair(targetType, targetId, currentUserId = null) {
   const reactions = await Reaction.find({ targetType, targetId }).lean();
   const [publicSummary] = buildSummaries([{ targetType, targetId }], reactions, null);
