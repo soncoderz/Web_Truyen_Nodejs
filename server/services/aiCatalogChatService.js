@@ -1,6 +1,7 @@
 const env = require("../config/env");
 const { ensureArray, hasText } = require("../utils/normalize");
 
+// Prompt he thong rang buoc AI chi duoc tra loi dua tren catalog noi bo.
 const CHAT_SYSTEM_PROMPT = `
 Ban la tro ly AI cho Web Truyen Online.
 
@@ -48,6 +49,7 @@ const GENERIC_QUERY_TOKENS = new Set([
   "xem",
 ]);
 
+// Chuan hoa text de so khop khong dau va bo ky tu nhieu.
 function normalizeText(value) {
   return String(value || "")
     .normalize("NFD")
@@ -58,6 +60,7 @@ function normalizeText(value) {
     .trim();
 }
 
+// Tach message thanh token de su dung trong viec tim kiem/cham diem.
 function tokenize(value) {
   return normalizeText(value)
     .split(" ")
@@ -124,6 +127,7 @@ function extractCharacterName(message) {
   return "";
 }
 
+// Tim cac truy?n co kha nang chua nhan vat duoc nhac den trong cau hoi.
 function findCharacterStories(characterName, stories, limit = 6) {
   const normalizedName = normalizeText(characterName);
   if (!normalizedName) {
@@ -140,6 +144,7 @@ function findCharacterStories(characterName, stories, limit = 6) {
       const normalizedTitle = normalizeText(story?.title);
       let score = 0;
 
+      // Uu tien cao neu ten nhan vat xuat hien nguyen cum trong mo ta/tieu de.
       if (normalizedDescription.includes(normalizedName)) {
         score += 120;
       }
@@ -236,6 +241,7 @@ function computePopularity(story) {
   return followers + views + rating + totalRatings;
 }
 
+// Tong hop diem lien quan tu title, tac gia, the loai, mo ta va do pho bien.
 function scoreStoryForMessage(story, messageTokens, rawMessage = "") {
   const normalizedMessage = normalizeText(rawMessage || messageTokens.join(" "));
   const normalizedTitle = normalizeText(story?.title);
@@ -259,6 +265,7 @@ function scoreStoryForMessage(story, messageTokens, rawMessage = "") {
     }
   }
 
+  // Token khop voi title/category/author se duoc uu tien hon text mo ta chung.
   for (const token of messageTokens) {
     if (!token || GENERIC_QUERY_TOKENS.has(token)) {
       continue;
@@ -298,6 +305,7 @@ function scoreStoryForMessage(story, messageTokens, rawMessage = "") {
   return score;
 }
 
+// Xep hang toan bo story theo message hien tai.
 function rankStoriesForMessage(message, stories) {
   const messageTokens = Array.from(new Set(tokenize(message)));
   const rankedStories = ensureArray(stories)
@@ -323,6 +331,7 @@ function pickRelevantStories(message, stories, limit = 8) {
   return selected;
 }
 
+// Neu mot story vuot troi ro ret, xem no la doi tuong chinh de tra loi fact.
 function pickPrimaryStory(messageTokens, rankedStories) {
   const topItem = ensureArray(rankedStories)[0];
   if (!topItem?.story) {
@@ -347,6 +356,7 @@ function pickPrimaryStory(messageTokens, rankedStories) {
   return null;
 }
 
+// Tao snippet ngan gon tu catalog de gui sang model.
 function buildCatalogSnippet(stories) {
   return ensureArray(stories)
     .map((story, index) => {
@@ -406,6 +416,7 @@ function looksLikePoorChatReply(value) {
   return false;
 }
 
+// Goi Gemini de tao cau tra loi tu nhien; tra null neu cau hinh thieu hoac output qua yeu.
 async function requestCatalogChatReply(message, history, stories) {
   const config = env.aiSummary || {};
   if (!config.enabled || !config.apiKey) {
@@ -568,6 +579,7 @@ function buildStoryFactReply(story, normalizedMessage) {
   return replyParts.slice(0, 4).join(" ");
 }
 
+// Fallback thu cong khi AI khong kha dung hoac khong tra loi dat chat luong.
 function buildFallbackReply(message, stories) {
   const normalizedMessage = normalizeText(message);
   const selectedStories = ensureArray(stories).slice(0, 3);
@@ -602,6 +614,10 @@ function buildFallbackReply(message, stories) {
   return [intro, ...lines].join("\n");
 }
 
+// Luong chinh:
+// 1. Thu nhan dien cau hoi ve nhan vat.
+// 2. Chon nhung story lien quan nhat.
+// 3. Goi AI, neu that bai thi dung fallback rule-based.
 async function replyWithCatalogChat({ message, history, stories }) {
   const characterName = extractCharacterName(message);
   if (characterName) {

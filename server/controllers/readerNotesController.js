@@ -46,11 +46,11 @@ async function resolveContext(storyId, chapterId) {
   const normalizedChapterId = normalizeId(chapterId);
 
   if (!normalizedStoryId) {
-    throw httpError(400, "Lá»—i: Báº¯t buá»™c pháº£i cÃ³ truyá»‡n.");
+    throw httpError(400, "Lỗi: Bắt buộc phải có truyện.");
   }
 
   if (!normalizedChapterId) {
-    throw httpError(400, "Lá»—i: Báº¯t buá»™c pháº£i cÃ³ chÆ°Æ¡ng.");
+    throw httpError(400, "Lỗi: Bắt buộc phải có chương.");
   }
 
   const [story, chapter] = await Promise.all([
@@ -59,15 +59,15 @@ async function resolveContext(storyId, chapterId) {
   ]);
 
   if (!story) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y truyá»‡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!chapter) {
-    throw httpError(400, "Lá»—i: KhÃ´ng tÃ¬m tháº¥y chÆ°Æ¡ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy chương!");
   }
 
   if (String(chapter.storyId) !== normalizedStoryId) {
-    throw httpError(400, "Lá»—i: ChÆ°Æ¡ng khÃ´ng thuá»™c truyá»‡n nÃ y.");
+    throw httpError(400, "Lỗi: Chương không thuộc truyện này.");
   }
 
   return { story: serializeDoc(story), chapter: serializeDoc(chapter) };
@@ -76,33 +76,38 @@ async function resolveContext(storyId, chapterId) {
 function validateLocation(story, chapter, pageIndex, paragraphIndex) {
   if (story.type === "MANGA") {
     if (paragraphIndex !== undefined && paragraphIndex !== null) {
-      return "Lá»—i: Ghi chÃº manga pháº£i trá» Ä‘áº¿n má»™t trang.";
+      return "Lỗi: Ghi chú manga phải trờ đến một trang.";
     }
     if (pageIndex === undefined || pageIndex === null) {
-      return "Lá»—i: Ghi chÃº manga báº¯t buá»™c pháº£i cÃ³ trang.";
+      return "Lỗi: Ghi chú manga bắt buộc phải có trang.";
     }
     if (pageIndex < 0 || pageIndex >= (chapter.pages || []).length) {
-      return "Lá»—i: Chá»‰ sá»‘ trang vÆ°á»£t ngoÃ i pháº¡m vi.";
+      return "Lỗi: Chỉ số trang vượt ngoài phạm vi.";
     }
     return null;
   }
 
   if (pageIndex !== undefined && pageIndex !== null) {
-    return "Lá»—i: Ghi chÃº novel pháº£i trá» Ä‘áº¿n má»™t Ä‘oáº¡n.";
+    return "Lỗi: Ghi chú novel phải trờ đến một đoạn.";
   }
 
   if (paragraphIndex === undefined || paragraphIndex === null) {
-    return "Lá»—i: Ghi chÃº novel báº¯t buá»™c pháº£i cÃ³ Ä‘oáº¡n.";
+    return "Lỗi: Ghi chú novel bắt buộc phải có đoạn.";
   }
 
   const paragraphs = extractParagraphs(chapter.content);
   if (paragraphIndex < 0 || paragraphIndex >= paragraphs.length) {
-    return "Lá»—i: Chá»‰ sá»‘ Ä‘oáº¡n vÆ°á»£t ngoÃ i pháº¡m vi.";
+    return "Lỗi: Chỉ số đoạn vượt ngoài phạm vi.";
   }
 
   return null;
 }
 
+/**
+ * Lay danh sach tat ca ghi chu cua nguoi dung cho mot truyen va chuong
+ * @param {Object} req - Express request object, chua storyId va chapterId trong params
+ * @param {Object} res - Express response object
+ */
 const listReaderNotes = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const { story, chapter } = await resolveContext(
@@ -121,6 +126,9 @@ const listReaderNotes = asyncHandler(async (req, res) => {
   res.json(notes.map(serializeDoc));
 });
 
+// Them hoac cap nhat ghi chu doc - ho tro MANGA (page) va NOVEL (paragraph)
+// Validation phuc tap: chi co 1 trong 2, chi so phai within range, co note text
+// Upsert: neu da co ghi chu o vi tri nay thi cap nhat, ko thi tao moi
 const upsertReaderNote = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const note = normalizeNote(req.body.note);
@@ -134,18 +142,18 @@ const upsertReaderNote = asyncHandler(async (req, res) => {
       : Number(req.body.paragraphIndex);
 
   if (!note) {
-    throw httpError(400, "Lá»—i: Báº¯t buá»™c pháº£i cÃ³ ghi chÃº.");
+    throw httpError(400, "Lỗi: Bắt buộc phải có ghi chú.");
   }
 
   if (pageIndex !== null && paragraphIndex !== null) {
     throw httpError(
       400,
-      "Lá»—i: Ghi chÃº chá»‰ cÃ³ thá»ƒ trá» Ä‘áº¿n má»™t trang hoáº·c má»™t Ä‘oáº¡n.",
+      "Lỗi: Ghi chú chờ‰ có thờƒ trờ đến một trang hoặc mờ™t đoạn.",
     );
   }
 
   if (pageIndex === null && paragraphIndex === null) {
-    throw httpError(400, "Lá»—i: Ghi chÃº báº¯t buá»™c pháº£i cÃ³ trang hoáº·c Ä‘oáº¡n.");
+    throw httpError(400, "Lỗi: Ghi chú bắt buộc phải có trang hoặc đoạn.");
   }
 
   const { story, chapter } = await resolveContext(req.body.storyId, req.body.chapterId);
@@ -181,6 +189,11 @@ const upsertReaderNote = asyncHandler(async (req, res) => {
   res.json(serializeDoc(savedNote));
 });
 
+/**
+ * Xoa mot ghi chu doc cua nguoi dung
+ * @param {Object} req - Express request object, chua storyId, chapterId, pageIndex/paragraphIndex trong params/query
+ * @param {Object} res - Express response object
+ */
 const deleteReaderNote = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const pageIndex =
@@ -209,7 +222,7 @@ const deleteReaderNote = asyncHandler(async (req, res) => {
     paragraphIndex,
   });
 
-  res.json(buildMessage("ÄÃ£ xÃ³a ghi chÃº thÃ nh cÃ´ng!"));
+  res.json(buildMessage("Đã xóa ghi chú thành công!"));
 });
 
 module.exports = {

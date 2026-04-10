@@ -4,6 +4,7 @@ const DEFAULT_PROFILE_SKIN_ID = "default";
 const COIN_EXCHANGE_RATE = 10;
 const MIN_WALLET_TO_COINS_EXCHANGE_AMOUNT = 1000;
 
+// Badge duoc mo khoa theo streak doc sach lien tiep cua nguoi dung.
 const BADGE_CATALOG = [
   {
     id: "mission_day_1",
@@ -31,6 +32,7 @@ const BADGE_CATALOG = [
   },
 ];
 
+// Catalog skin profile de frontend render shop/equip ma khong can hard-code.
 const PROFILE_SKIN_CATALOG = [
   {
     id: DEFAULT_PROFILE_SKIN_ID,
@@ -238,6 +240,7 @@ const PROFILE_SKIN_CATALOG = [
   },
 ];
 
+// Loai bo gia tri rong/trung lap va chuyen tat ca ve string.
 function asUniqueStringList(values) {
   return Array.from(
     new Set(
@@ -248,6 +251,7 @@ function asUniqueStringList(values) {
   );
 }
 
+// Dung moc ngay theo gio Viet Nam de tranh lech nhiem vu ngay.
 function getDateKey(date = new Date()) {
   const utcMs = date.getTime() + date.getTimezoneOffset() * 60 * 1000;
   const vietnamMs = utcMs + 7 * 60 * 60 * 1000;
@@ -271,6 +275,7 @@ function shiftDateKey(dateKey, dayOffset) {
   return shiftedDate.toISOString().slice(0, 10);
 }
 
+// Trang thai mac dinh cua nhiem vu ngay.
 function buildDefaultMissionProgress(dateKey = getDateKey()) {
   return {
     dateKey,
@@ -281,6 +286,7 @@ function buildDefaultMissionProgress(dateKey = getDateKey()) {
   };
 }
 
+// Neu progress thuoc ngay cu thi reset ve ngay hien tai.
 function normalizeMissionProgress(progress, currentDateKey) {
   if (!progress || progress.dateKey !== currentDateKey) {
     return buildDefaultMissionProgress(currentDateKey);
@@ -295,6 +301,7 @@ function normalizeMissionProgress(progress, currentDateKey) {
   };
 }
 
+// Dam bao user luon co day du cac truong reward, mission, badge va skin.
 function ensureRewardState(user, now = new Date()) {
   const currentDateKey = getDateKey(now);
 
@@ -321,6 +328,7 @@ function ensureRewardState(user, now = new Date()) {
   return user;
 }
 
+// Tim cac badge moi vua du dieu kien mo khoa.
 function getUnlockedBadgeIds(user) {
   return BADGE_CATALOG.filter(
     (badge) => Number(user.readingStreak || 0) >= badge.requiredStreak,
@@ -329,6 +337,7 @@ function getUnlockedBadgeIds(user) {
     .filter((badgeId) => !user.badges.includes(badgeId));
 }
 
+// Ghi nhan doc chapter cho nhiem vu ngay, coin thuong, streak va badge.
 function trackChapterRead(user, chapterId, now = new Date()) {
   ensureRewardState(user, now);
 
@@ -354,6 +363,7 @@ function trackChapterRead(user, chapterId, now = new Date()) {
   let rewardCoins = 0;
   let unlockedBadgeIds = [];
 
+  // Hoan thanh nhiem vu ngay khi da doc du so chapter muc tieu.
   if (!progress.completed && progress.chapterIds.length >= DAILY_MISSION_TARGET) {
     progress.completed = true;
     progress.completedAt = now;
@@ -363,6 +373,7 @@ function trackChapterRead(user, chapterId, now = new Date()) {
     rewardCoins = DAILY_MISSION_COIN_REWARD;
     completedNow = true;
 
+    // Neu ngay hom qua cung hoan thanh nhiem vu thi streak duoc cong tiep.
     const yesterdayKey = shiftDateKey(progress.dateKey, -1);
     user.readingStreak =
       user.lastMissionCompletedDateKey === yesterdayKey
@@ -395,6 +406,7 @@ function trackChapterRead(user, chapterId, now = new Date()) {
   };
 }
 
+// Quy doi gia mo khoa story sang coin, toi thieu 100 coin.
 function calculateStoryCoinPrice(story) {
   const unlockPrice = Number(story?.unlockPrice || 0);
   if (!story?.licensed || unlockPrice <= 0) {
@@ -404,6 +416,7 @@ function calculateStoryCoinPrice(story) {
   return Math.max(100, Math.ceil(unlockPrice / COIN_EXCHANGE_RATE));
 }
 
+// Quy doi so tien trong vi sang coin theo ti le co dinh.
 function convertWalletAmountToCoins(amount) {
   const normalizedAmount = Number(amount || 0);
   if (normalizedAmount <= 0) {
@@ -413,6 +426,7 @@ function convertWalletAmountToCoins(amount) {
   return Math.floor(normalizedAmount / COIN_EXCHANGE_RATE);
 }
 
+// Danh sach badge kem trang thai unlocked.
 function buildBadgeList(user) {
   const unlockedBadgeIds = new Set(asUniqueStringList(user.badges));
   return BADGE_CATALOG.map((badge) => ({
@@ -421,6 +435,7 @@ function buildBadgeList(user) {
   }));
 }
 
+// Danh sach skin kem trang thai so huu va dang trang bi.
 function buildProfileSkinList(user) {
   const ownedSkinIds = new Set(asUniqueStringList(user.ownedProfileSkinIds));
   const equippedProfileSkinId =
@@ -433,6 +448,7 @@ function buildProfileSkinList(user) {
   }));
 }
 
+// Tong hop nhanh tien do nhiem vu ngay hien tai cho frontend.
 function buildMissionSummary(user, now = new Date()) {
   ensureRewardState(user, now);
   const progress = user.missionProgress;
@@ -449,6 +465,7 @@ function buildMissionSummary(user, now = new Date()) {
   };
 }
 
+// Lay dinh nghia skin theo id de dung lai o nhieu noi.
 function getProfileSkinDefinition(skinId) {
   return (
     PROFILE_SKIN_CATALOG.find((skin) => skin.id === String(skinId || "")) || null

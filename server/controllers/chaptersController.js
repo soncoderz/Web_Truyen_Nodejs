@@ -2,7 +2,7 @@ const Chapter = require("../models/chapter");
 const Notification = require("../models/notification");
 const Story = require("../models/story");
 const User = require("../models/user");
-const { emitNotificationsCreated } = require("../services/realtime");
+const { emitNotificationsCreated } = require("../config/socket");
 const {
   CHAPTER_ACCESS_MODES,
   buildStoryMonetizationState,
@@ -68,7 +68,7 @@ function validateChapterPricing(chapter) {
     normalizeChapterAccessMode(chapter.accessMode) !== CHAPTER_ACCESS_MODES.FREE &&
     Number(chapter.accessPrice || 0) <= 0
   ) {
-    return "Loi: Chuong tinh phi hoac early access phai co gia lon hon 0.";
+    return "Lỗi: Chuong tinh phi hoac early access phải có giá lớn hơn 0.";
   }
 
   return null;
@@ -125,19 +125,22 @@ async function sendNewChapterNotifications(story, chapter) {
 
   emitNotificationsCreated(notifications);
 }
-
-const listManageStoryChapters = asyncHandler(async (req, res) => {
+/**
+ * Lay danh sach chuong cua mot truyen cho admin quan ly
+ * @param {Object} req - Express request object, chua storyId trong params
+ * @param {Object} res - Express response object
+ */const listManageStoryChapters = asyncHandler(async (req, res) => {
   if (!isObjectId(req.params.storyId)) {
-    throw httpError(400, "LÃ¡Â»â€”i: MÄ‚Â£ truyÃ¡Â»â€¡n khÄ‚Â´ng hÃ¡Â»Â£p lÃ¡Â»â€¡.");
+    throw httpError(400, "Lỗi: Mã truyện khÄ‚Â´ng hợp lệ.");
   }
 
   const story = await Story.findById(req.params.storyId).lean();
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "LÃ¡Â»â€”i: BÃ¡ÂºÂ¡n khÄ‚Â´ng cÄ‚Â³ quyÃ¡Â»Ân xem cÄ‚Â¡c chÃ†Â°Ã†Â¡ng nÄ‚Â y.");
+    throw httpError(403, "Lỗi: BáÂºÂ¡n khÄ‚Â´ng có quyáÂ»Ân xem các chương nÄ‚Â y.");
   }
 
   const chapters = await Chapter.find({ storyId: req.params.storyId })
@@ -146,6 +149,12 @@ const listManageStoryChapters = asyncHandler(async (req, res) => {
   res.json(chapters.map(serializeDoc));
 });
 
+/**
+ * Lay danh sach chuong cua mot truyen cho doc
+ * Chi hien thi tung chuong da duyet, co kiem tra quyen truy cap
+ * @param {Object} req - Express request object, chua storyId trong params
+ * @param {Object} res - Express response object
+ */
 const listStoryChapters = asyncHandler(async (req, res) => {
   if (!isObjectId(req.params.storyId)) {
     return res.json([]);
@@ -189,6 +198,11 @@ const listStoryChapters = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * Lay danh sach chuong cua nguoi dung hien tai
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const listMyChapters = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
   const chapters = await Chapter.find({ uploaderId: user.id })
@@ -197,6 +211,11 @@ const listMyChapters = asyncHandler(async (req, res) => {
   res.json(chapters.map(serializeDoc));
 });
 
+/**
+ * Lay danh sach chuong can reviewed
+ * @param {Object} req - Express request object, chua approvalStatus, storyId trong query
+ * @param {Object} res - Express response object
+ */
 const listReviewChapters = asyncHandler(async (req, res) => {
   const query = {
     ...buildApprovalQuery(req.query.approvalStatus || "PENDING"),
@@ -209,26 +228,28 @@ const listReviewChapters = asyncHandler(async (req, res) => {
   const chapters = await Chapter.find(query).sort({ updatedAt: -1 }).lean();
   res.json(chapters.map(serializeDoc));
 });
-
+// Lay chi tiet chuong - access control + monetization (early access, purchase, rental)
+// Validate: ID format, story/chapter exist, view perm, read perm, approval status
+// Tra ve: full chapter data OR locked response voi lockReason + accessPrice
 const getChapterById = asyncHandler(async (req, res) => {
   const optional = String(req.query.optional || "") === "1";
   if (!isObjectId(req.params.id)) {
     return optional
       ? res.json(null)
-      : res.status(400).json(buildMessage("LÃ¡Â»â€”i: MÄ‚Â£ chÃ†Â°Ã†Â¡ng khÄ‚Â´ng hÃ¡Â»Â£p lÃ¡Â»â€¡!"));
+      : res.status(400).json(buildMessage("Lỗi: Mã chương khÄ‚Â´ng hợp lệ!"));
   }
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
     return optional
       ? res.json(null)
-      : res.status(400).json(buildMessage("L?i: KhÃ´ng tÌm th?y chuong!"));
+      : res.status(400).json(buildMessage("L?i: Không tÌm th?y chuong!"));
   }
 
   const story = await Story.findById(chapter.storyId).lean();
   if (!story) {
     return optional
       ? res.json(null)
-      : res.status(400).json(buildMessage("L?i: KhÃ´ng tÌm th?y truy?n!"));
+      : res.status(400).json(buildMessage("L?i: Không tÌm th?y truy?n!"));
   }
 
   const plainStory = serializeDoc(story);
@@ -249,10 +270,10 @@ const getChapterById = asyncHandler(async (req, res) => {
       return res.status(402).json({
         message:
           access.lockReason === "EARLY_ACCESS_REQUIRED"
-            ? "Chuong nay dang o che do early access. Hay mua rieng chuong de doc ngay."
+            ? "Chuong nay dang o che do early access. Hay mua rieng chuong de doc ngày."
             : access.lockReason === "CHAPTER_PURCHASE_REQUIRED"
               ? "Chuong nay can mua rieng truoc khi doc."
-              : "Ban can mo khoa truyen nay truoc khi doc chuong.",
+              : "Ban can mở khóa truyen nay truoc khi doc chuong.",
         lockReason: access.lockReason,
         accessMode: access.accessMode,
         accessPrice: access.accessPrice,
@@ -261,12 +282,12 @@ const getChapterById = asyncHandler(async (req, res) => {
       });
       return res
         .status(402)
-        .json(buildMessage("LÃ¡Â»â€”i: HÄ‚Â£y mua truyÃ¡Â»â€¡n cÄ‚Â³ bÃ¡ÂºÂ£n quyÃ¡Â»Ân nÄ‚Â y trÃ†Â°Ã¡Â»â€ºc khi Ã„â€˜Ã¡Â»Âc."));
+        .json(buildMessage("Lỗi: Hãy mua truyện có bản quyền này trước khi đọc."));
     }
 
     return optional
       ? res.json(null)
-      : res.status(404).json(buildMessage("LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y chÃ†Â°Ã†Â¡ng!"));
+      : res.status(404).json(buildMessage("Lỗi: Không tìm thấy chương!"));
   }
 
   const storedSummary = normalizeSummary(chapter.summary) || "";
@@ -279,8 +300,11 @@ const getChapterById = asyncHandler(async (req, res) => {
   }
 
   res.json(serializeDoc(chapter));
-});
+}); 
 
+// Tao chuong moi cho truyen - Step by step workflow
+// Admin: phe duyet ngay luc tao, User: cho phe duyet cua admin
+// Kiem tra: truyen co ton tai, user co quyen quan ly, chapter number ko trung
 const createChapter = asyncHandler(async (req, res) => {
   const [user, story, existingChapter] = await Promise.all([
     getCurrentUserDocument(req),
@@ -292,15 +316,15 @@ const createChapter = asyncHandler(async (req, res) => {
   ]);
 
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "LÃ¡Â»â€”i: BÃ¡ÂºÂ¡n khÄ‚Â´ng cÄ‚Â³ quyÃ¡Â»Ân thÄ‚Âªm chÃ†Â°Ã†Â¡ng cho truyÃ¡Â»â€¡n nÄ‚Â y.");
+    throw httpError(403, "Lỗi: Bạn không có quyền thêm chương cho truyện này.");
   }
 
   if (existingChapter) {
-    throw httpError(400, "LÃ¡Â»â€”i: SÃ¡Â»â€˜ chÃ†Â°Ã†Â¡ng Ã„â€˜Ä‚Â£ tÃ¡Â»â€œn tÃ¡ÂºÂ¡i trong truyÃ¡Â»â€¡n nÄ‚Â y.");
+    throw httpError(400, "Lỗi: Số chương đã tồn tại trong truyện này.");
   }
 
   const admin = isAdmin(req.user);
@@ -336,20 +360,24 @@ const createChapter = asyncHandler(async (req, res) => {
 
   res.json(serializeDoc(chapter));
 });
-
-const updateChapter = asyncHandler(async (req, res) => {
+/**
+ * Cap nhat thong tin chuong
+ * Co kiem tra xung dot so chuong, kiem tra quyen quan ly
+ * @param {Object} req - Express request object, chua chapter ID trong params
+ * @param {Object} res - Express response object
+ */const updateChapter = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y chÃ†Â°Ã†Â¡ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy chương!");
   }
 
   const story = await Story.findById(chapter.storyId);
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "LÃ¡Â»â€”i: BÃ¡ÂºÂ¡n khÄ‚Â´ng cÄ‚Â³ quyÃ¡Â»Ân cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t chÃ†Â°Ã†Â¡ng nÄ‚Â y.");
+    throw httpError(403, "Lỗi: BáÂºÂ¡n khÄ‚Â´ng có quyáÂ»Ân cập nhật chương nÄ‚Â y.");
   }
 
   const existingChapter = await Chapter.findOne({
@@ -357,7 +385,7 @@ const updateChapter = asyncHandler(async (req, res) => {
     chapterNumber: Number(req.body.chapterNumber),
   });
   if (existingChapter && String(existingChapter._id) !== String(chapter._id)) {
-    throw httpError(400, "LÃ¡Â»â€”i: SÃ¡Â»â€˜ chÃ†Â°Ã†Â¡ng Ã„â€˜Ä‚Â£ tÃ¡Â»â€œn tÃ¡ÂºÂ¡i trong truyÃ¡Â»â€¡n nÄ‚Â y.");
+    throw httpError(400, "Lỗi: Số chương đã tồn tại trong truyện này.");
   }
 
   const previousStatus = chapter.approvalStatus;
@@ -394,12 +422,12 @@ const updateChapter = asyncHandler(async (req, res) => {
 const regenerateChapterSummary = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
-    throw httpError(400, "LÃƒÂ¡Ã‚Â»Ã¢â‚¬â€i: KhÃ„â€šÃ‚Â´ng tÃ„â€šÃ‚Â¬m thÃƒÂ¡Ã‚ÂºÃ‚Â¥y chÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy chương!");
   }
 
   const story = await Story.findById(chapter.storyId).lean();
   if (!story) {
-    throw httpError(400, "LÃƒÂ¡Ã‚Â»Ã¢â‚¬â€i: KhÃ„â€šÃ‚Â´ng tÃ„â€šÃ‚Â¬m thÃƒÂ¡Ã‚ÂºÃ‚Â¥y truyÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   chapter.summary = await generateSummary(serializeDoc(story), chapter);
@@ -408,16 +436,20 @@ const regenerateChapterSummary = asyncHandler(async (req, res) => {
 
   res.json(serializeDoc(chapter));
 });
-
-const updateChapterApproval = asyncHandler(async (req, res) => {
+/**
+ * Cap nhat trang thai phe duyet cua chuong
+ * Tu dong gui thong bao den theo doi neu chuong duoc phe duyet
+ * @param {Object} req - Express request object, chua chapter ID trong params,  approvalStatus trong body
+ * @param {Object} res - Express response object
+ */const updateChapterApproval = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y chÃ†Â°Ã†Â¡ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy chương!");
   }
 
   const story = await Story.findById(chapter.storyId);
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   const previousStatus = chapter.approvalStatus;
@@ -435,24 +467,27 @@ const updateChapterApproval = asyncHandler(async (req, res) => {
 
   res.json(serializeDoc(chapter));
 });
-
-const deleteChapter = asyncHandler(async (req, res) => {
+/**
+ * Xoa chuong va xoa tat ca binh luan lien quan
+ * @param {Object} req - Express request object, chua chapter ID trong params
+ * @param {Object} res - Express response object
+ */const deleteChapter = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y chÃ†Â°Ã†Â¡ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy chương!");
   }
 
   const story = await Story.findById(chapter.storyId);
   if (!story) {
-    throw httpError(400, "LÃ¡Â»â€”i: KhÄ‚Â´ng tÄ‚Â¬m thÃ¡ÂºÂ¥y truyÃ¡Â»â€¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "LÃ¡Â»â€”i: BÃ¡ÂºÂ¡n khÄ‚Â´ng cÄ‚Â³ quyÃ¡Â»Ân xÄ‚Â³a chÃ†Â°Ã†Â¡ng nÄ‚Â y.");
+    throw httpError(403, "Lỗi: Bạn không có quyền xóa chương này.");
   }
 
   await chapter.deleteOne();
-  res.json(buildMessage("Ã„ÂÄ‚Â£ xÄ‚Â³a chÃ†Â°Ã†Â¡ng thÄ‚Â nh cÄ‚Â´ng!"));
+  res.json(buildMessage("Đã xóa chương thành công!"));
 });
 
 module.exports = {

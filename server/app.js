@@ -16,6 +16,7 @@ function createApp() {
   app.use(optionalAuth);
 
   app.use("/api", require("./routes/system"));
+  app.use("/api/socket-test", require("./routes/socketTest"));
   app.use("/api/auth", require("./routes/auth"));
   app.use("/api/stories", require("./routes/stories"));
   app.use("/api/categories", require("./routes/categories"));

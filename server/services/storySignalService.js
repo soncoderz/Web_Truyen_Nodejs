@@ -2,6 +2,7 @@ const Chapter = require("../models/chapter");
 const { ensureArray } = require("../utils/normalize");
 const { serializeDoc } = require("../utils/serialize");
 
+// Chi tinh thong ke tren cac chapter da duoc duyet hoac chua co co che duyet.
 function approvedChapterQuery(storyIds) {
   return {
     storyId: { $in: storyIds },
@@ -13,6 +14,7 @@ function approvedChapterQuery(storyIds) {
   };
 }
 
+// Bo sung chapterCount va latestChapterNumber cho danh sach story bang aggregate.
 async function attachStoryChapterStats(stories) {
   const storyList = ensureArray(stories)
     .map(serializeDoc)

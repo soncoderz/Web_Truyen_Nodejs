@@ -114,6 +114,17 @@ export default function Home() {
       });
   };
 
+  const bannerStories = Array.from(
+    new Map(
+      [...trending, ...recommendations, ...newReleases, ...licensedStories]
+        .filter((story) => story?.coverImage && (story?.id || story?._id))
+        .map((story) => [story.id || story._id, story]),
+    ).values(),
+  ).slice(0, 12);
+
+  const bannerLoopStories =
+    bannerStories.length > 1 ? [...bannerStories, ...bannerStories] : bannerStories;
+
   return (
     <>
     <div
@@ -174,6 +185,13 @@ export default function Home() {
           </Link>
         </div>
       </div>
+
+      {bannerLoopStories.length > 0 && (
+        <HomeStoryBanner
+          stories={bannerLoopStories}
+          animated={bannerStories.length > 1}
+        />
+      )}
 
       {/* Categories */}
       {categories.length > 0 && (
@@ -486,6 +504,46 @@ function HomeHotStoryRow({ story, rank, index, variant }) {
         </div>
       </div>
     </Link>
+  );
+}
+
+function HomeStoryBanner({ stories, animated }) {
+  return (
+    <section className="home-story-banner" aria-label="Banner truyen noi bat">
+      <div className="home-story-banner-header">
+        <span className="home-story-banner-kicker">Noi bat hom nay</span>
+        <p className="home-story-banner-copy">
+        </p>
+      </div>
+      <div className="home-story-banner-shell">
+        <div
+          className={`home-story-banner-track${animated ? "" : " is-static"}`}
+        >
+          {stories.map((story, index) => {
+            const storyId = story.id || story._id;
+
+            return (
+              <Link
+                key={`${storyId}-${index}`}
+                to={`/story/${storyId}`}
+                className="home-story-banner-item"
+              >
+                <img src={story.coverImage} alt={story.title} />
+                <div className="home-story-banner-overlay">
+                  <span className="home-story-banner-badge">
+                    {story.type === "MANGA" ? "Manga" : "Novel"}
+                  </span>
+                  <strong>{story.title}</strong>
+                  <span>
+                    {Number(story.views || 0).toLocaleString("vi-VN")} luot xem
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }
 

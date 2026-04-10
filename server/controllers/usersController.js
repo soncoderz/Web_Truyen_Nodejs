@@ -91,6 +91,12 @@ function approvedStoryQuery() {
   };
 }
 
+/**
+ * Lấy cài đặt hồ sơ công khai của người dùng hiện tại
+ * Trích xuất các thông tin có thể chỉnh sửa như avatar, headline, bio, accent color, readme
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const getMyProfileSettings = asyncHandler(async (req, res) => {
   const user = await getCurrentUserDocument(req);
 
@@ -99,49 +105,68 @@ const getMyProfileSettings = asyncHandler(async (req, res) => {
   });
 });
 
+// Cap nhat ho so cong khai - avatar, headline, bio, accentColor, readme
+// Conditional logic: chi cap nhat truong co trong request body, truong khac giu lai cu
+// Normalization: validate URL, gioi han ky tu, loai bo ki tu dac biet, format chinh tac
 const updateMyProfile = asyncHandler(async (req, res) => {
+  // 1. Lay user hien tai tu JWT token
   const user = await getCurrentUserDocument(req);
 
+  // 2. KỊCH BẢN avatar: chi cap nhat neu co trong request
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "avatar")) {
     user.avatar = normalizeAvatarUrl(req.body?.avatar);
   }
+  
+  // 3. KỊCH BẢN headline: normalize single line (remove newline, collapse spaces), limit length
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "headline")) {
     user.profileHeadline = normalizeSingleLine(
       req.body?.headline,
       PROFILE_HEADLINE_MAX_LENGTH,
     );
   }
+  
+  // 4. KỊCH BẢN bio: normalize multiline (normalize line breaks, collapse spaces per line), limit length
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "bio")) {
     user.profileBio = normalizeMultiline(req.body?.bio, PROFILE_BIO_MAX_LENGTH);
   }
+  
+  // 5. KỊCH BẢN accentColor: validate hex color format (#RRGGBB)
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "accentColor")) {
     user.profileAccentColor = normalizeAccentColor(req.body?.accentColor);
   }
+  
+  // 6. KỊCH BẢN readme: xau markdown dai, loai bo null chars, limit 8000 ky tu
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "readme")) {
     user.profileReadme = normalizeReadme(req.body?.readme);
   }
 
+  // 7. Luu user vao database sau khi cap nhat tat ca truong
   await user.save();
 
+  // 8. Tra ve: message success + editable settings + public profile hydrated
   res.json({
-    message: "ÄÃ£ cáº­p nháº­t há»“ sÆ¡ cÃ´ng khai.",
+    message: "Đã cập nhật hồ sơ công khai.",
     settings: buildEditableProfileSettings(user),
     profile: buildPublicProfilePayload(user),
   });
 });
-
-const getPublicUserProfile = asyncHandler(async (req, res) => {
+/**
+ * Lấy hồ sơ công khai của người dùng theo ID
+ * Hiển thị thông tin hồ sơ, số bình luận, số truyện đã xuất bản, truyện gần đây
+ * @param {Object} req - Express request object, chứa user ID trong params
+ * @param {Object} res - Express response object
+ */const getPublicUserProfile = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res
       .status(404)
-      .json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y ngÆ°á»i dÃ¹ng!"));
+      .json(buildMessage("Lỗi: Không tìm thấy ngÆ°ời dùng!"));
   }
 
   const user = await User.findById(req.params.id).lean();
   if (!user) {
     return res
       .status(404)
-      .json(buildMessage("Lá»—i: KhÃ´ng tÃ¬m tháº¥y ngÆ°á»i dÃ¹ng!"));
+      .json(buildMessage("Lỗi: Không tìm thấy ngÆ°ời dùng!"));
   }
 
   const [commentCount, publishedStoryCount, recentStories] = await Promise.all([

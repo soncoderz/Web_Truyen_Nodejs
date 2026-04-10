@@ -9,7 +9,7 @@ const {
 const createApp = require("./app");
 const env = require("./config/env");
 const { connectDatabase } = require("./config/db/mongoose");
-const { initializeRealtime } = require("./services/realtime");
+const { initializeRealtime } = require("./config/socket");
 const { ensureRoles } = require("./services/roleService");
 
 installConsoleCapture();
@@ -21,7 +21,11 @@ async function startServer() {
 
   const app = createApp();
   const server = http.createServer(app);
+
+  // Khởi tạo Socket.IO
+  logInfo("Initializing Socket.IO server...");
   initializeRealtime(server);
+  logInfo("Socket.IO server initialized successfully");
 
   server.on("error", (error) => {
     console.error("Node backend failed to bind port.", error);
@@ -34,6 +38,7 @@ async function startServer() {
     console.info(`Backend log file: ${backendLogPath}`);
     logInfo(`Node backend listening on port ${env.port}.`);
     logInfo(`Backend log file: ${backendLogPath}`);
+    logInfo(`Socket.IO ready for connections`);
   });
 }
 

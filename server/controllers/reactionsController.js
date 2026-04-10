@@ -13,7 +13,7 @@ const {
   loadTargetSummary,
   loadTargetSummaryPair,
 } = require("../services/reactionSummary");
-const { emitReactionUpdated } = require("../services/realtime");
+const { emitReactionUpdated } = require("../config/socket");
 
 function normalizeTargetType(value) {
   const targetType = String(value || "").trim().toUpperCase();
@@ -55,6 +55,11 @@ function normalizeTargetPayload(input) {
   };
 }
 
+/**
+ * Lay tong hop cam xuc (like, love, etc) cua nguoi dung hien tai cho mot doi tuong
+ * @param {Object} req - Express request object, chua targetType va targetId trong query
+ * @param {Object} res - Express response object
+ */
 const getSummary = asyncHandler(async (req, res) => {
   const targetType = normalizeTargetType(req.query.targetType);
   const targetId = normalizeTargetId(req.query.targetId);
@@ -66,6 +71,11 @@ const getSummary = asyncHandler(async (req, res) => {
   res.json(summary);
 });
 
+/**
+ * Lay tong hop cam xuc cho nhieu doi tuong cung luc
+ * @param {Object} req - Express request object, chua mang targets trong body
+ * @param {Object} res - Express response object
+ */
 const getBatchSummary = asyncHandler(async (req, res) => {
   const targets = ensureArray(req.body?.targets)
     .slice(0, 1000)
@@ -85,30 +95,41 @@ const getBatchSummary = asyncHandler(async (req, res) => {
   return res.json(buildSummaries(targets, reactions, req.user?.id || null));
 });
 
+// Thiết lập, thay đổi hoặc hủy bỏ cảm xúc (Reaction) của một User lên Truyện/Chương
 const setReaction = asyncHandler(async (req, res) => {
+  // 1. Phân tích Token JWT để lấy User đang thực hiện hành động
   const user = await getCurrentUserDocument(req);
+  
+  // 2. Chắt lọc và chuẩn hóa dữ liệu Payload gửi lên (Loại đối tượng, ID, Cảm xúc)
   const targetType = normalizeTargetType(req.body?.targetType);
   const targetId = normalizeTargetId(req.body?.targetId);
   const emotion = normalizeEmotion(req.body?.emotion);
+  
+  // 3. Khởi tạo Query lọc kết quả trong Database
   const filter = {
     userId: user.id,
     targetType,
     targetId,
   };
 
+  // Tra cứu dữ liệu quá khứ: xem User này từng thả biểu tượng nào lên Đối tượng này chưa
   const existingReaction = await Reaction.findOne(filter);
 
+  // KỊCH BẢN A: Người dùng đang gửi yêu cầu "Bỏ like/Hủy cảm xúc" (emotion == null)
   if (!emotion) {
     if (existingReaction) {
+      // Xóa đối tượng cảm xúc cũ khỏi hệ thống cơ sở dữ liệu
       await existingReaction.deleteOne();
     }
 
+    // Tính toán lại Tổng lượt tính của hệ thống ngay lập tức
     const { publicSummary, viewerSummary } = await loadTargetSummaryPair(
       targetType,
       targetId,
       user.id,
     );
 
+    // Bắn sự kiện Socket Realtime đi các máy client khác dể giảm số lượng Like mà không cần reset page
     emitReactionUpdated({
       targetType,
       targetId,
@@ -122,6 +143,8 @@ const setReaction = asyncHandler(async (req, res) => {
     });
   }
 
+  // KỊCH BẢN B: Người dùng đang gửi yêu cầu Cập nhật hoặc Thêm mới cảm xúc
+  // Gom cấu trúc dữ liệu chuẩn chuẩn bị lưu xuống Database
   const payload = {
     userId: user.id,
     targetType,
@@ -140,7 +163,9 @@ const setReaction = asyncHandler(async (req, res) => {
     updatedAt: new Date(),
   };
 
+  // Xử lý lưu kết quả
   if (existingReaction) {
+    // Nếu trước kia đã Like rồi mà giờ đổi càm xúc -> Tiến hành Update giá trị cũ và Save() lại
     existingReaction.emotion = payload.emotion;
     existingReaction.storyId = payload.storyId;
     existingReaction.chapterId = payload.chapterId;
@@ -149,18 +174,21 @@ const setReaction = asyncHandler(async (req, res) => {
     existingReaction.updatedAt = payload.updatedAt;
     await existingReaction.save();
   } else {
+    // Nếu chưa từng thả cảm xúc trước bao giờ -> Tạo hẳn Document mới (Create)
     await Reaction.create({
       ...payload,
       createdAt: new Date(),
     });
   }
 
+  // Tính thống kê đếm tổng số mới
   const { publicSummary, viewerSummary } = await loadTargetSummaryPair(
     targetType,
     targetId,
     user.id,
   );
 
+  // Kích hoạt tín hiệu Socket Push thông báo có cảm xúc mới
   emitReactionUpdated({
     targetType,
     targetId,
@@ -169,6 +197,7 @@ const setReaction = asyncHandler(async (req, res) => {
     actorEmotion: emotion,
   });
 
+  // Trả về JSON thành công cho trình duyệt gọi lệnh
   return res.json({
     summary: viewerSummary,
   });

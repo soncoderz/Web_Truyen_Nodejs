@@ -1,6 +1,7 @@
 const Role = require("../models/role");
 const { createDbRef, extractDbRefIds } = require("../utils/dbRefs");
 
+// Dam bao 2 role co ban luon ton tai trong database.
 async function ensureRoles() {
   const existing = await Role.find({ name: { $in: ["ROLE_USER", "ROLE_ADMIN"] } }).lean();
   const existingNames = new Set(existing.map((role) => role.name));
@@ -13,6 +14,7 @@ async function ensureRoles() {
   }
 }
 
+// Chuyen ten role thanh DBRef de luu vao document user.
 async function getRoleRefs(roleNames) {
   const roles = await Role.find({ name: { $in: roleNames } }).lean();
   if (roles.length !== roleNames.length) {
@@ -22,6 +24,7 @@ async function getRoleRefs(roleNames) {
   return roles.map((role) => createDbRef("roles", role._id));
 }
 
+// Doc role refs cua user va doi thanh ten vai tro de tra ve API.
 async function resolveRoleNames(user) {
   const roleIds = extractDbRefIds(user?.roles);
   if (roleIds.length === 0) {

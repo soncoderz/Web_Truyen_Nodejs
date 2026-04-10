@@ -653,7 +653,9 @@ export default function StoryDetail() {
     }
   };
 
-  const handleUnlockStory = async (paymentMethod = 'WALLET') => {
+  const handleUnlockStory = async (paymentMethodOrEvent) => {
+    const paymentMethod = paymentMethodOrEvent === 'COINS' ? 'COINS' : 'WALLET';
+
     if (!user) {
       navigate('/login');
       return;

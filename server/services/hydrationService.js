@@ -5,10 +5,12 @@ const { extractDbRefIds } = require("../utils/dbRefs");
 const { serializeDoc } = require("../utils/serialize");
 const { ensureArray } = require("../utils/normalize");
 
+// Tao map id -> document de hydrate du lieu nhanh hon.
 function mapById(documents) {
   return new Map(documents.map((doc) => [doc.id, doc]));
 }
 
+// Tu DBRef/id, tai document that va tra ve theo thu tu ids dau vao.
 async function resolveReferencedDocuments(values, Model) {
   const ids = Array.from(new Set(extractDbRefIds(values)));
   if (ids.length === 0) {
@@ -22,6 +24,7 @@ async function resolveReferencedDocuments(values, Model) {
   return ids.map((id) => byId.get(id)).filter(Boolean);
 }
 
+// Hydrate mot story don le voi category va author dang o dang tham chieu.
 async function hydrateStory(story) {
   const plainStory = serializeDoc(story);
   plainStory.categories = await resolveReferencedDocuments(
@@ -32,6 +35,7 @@ async function hydrateStory(story) {
   return plainStory;
 }
 
+// Phien ban toi uu cho danh sach story: query authors/categories theo lo.
 async function hydrateStories(stories) {
   const storyList = ensureArray(stories).map(serializeDoc);
   const categoryIds = Array.from(
@@ -64,6 +68,7 @@ async function hydrateStories(stories) {
   }));
 }
 
+// Rut chapter ve payload gon cho danh sach va response API.
 function serializeChapterListItem(chapter, extra = {}) {
   const plainChapter = serializeDoc(chapter);
   return {
@@ -80,6 +85,7 @@ function serializeChapterListItem(chapter, extra = {}) {
   };
 }
 
+// Chuan hoa response dang nhap/JWT de frontend doc nhat quan.
 function serializeJwtResponse({ token, user, roles }) {
   return {
     accessToken: token,
@@ -94,6 +100,7 @@ function serializeJwtResponse({ token, user, roles }) {
   };
 }
 
+// Gop bookmark voi story/chapter lien quan neu co de frontend dung ngay.
 function serializeBookmarkResponse(bookmark, story, chapter) {
   return {
     id: bookmark.id,
@@ -128,6 +135,7 @@ function serializeBookmarkResponse(bookmark, story, chapter) {
   };
 }
 
+// Chuyen danh sach role refs cua user thanh ten vai tro de tra ve API.
 async function resolveRoleNamesForUser(user) {
   const ids = extractDbRefIds(user?.roles);
   if (ids.length === 0) {

@@ -6,6 +6,7 @@ const {
   getProfileSkinDefinition,
 } = require("./rewardService");
 
+// Chuan hoa user thanh object an toan de dua ra profile cong khai.
 function toSerializableUser(user) {
   const plainUser = serializeDoc(user);
   const safeUser = {
@@ -46,6 +47,7 @@ function toSerializableUser(user) {
   return safeUser;
 }
 
+// Tao payload public profile gom thong tin co ban, skin, badge va thong ke.
 function buildPublicProfilePayload(user, extraStats = {}) {
   const safeUser = toSerializableUser(user);
   const activeSkin =
@@ -74,6 +76,7 @@ function buildPublicProfilePayload(user, extraStats = {}) {
   };
 }
 
+// Ho tro hydrate hang loat comment/user bang map profile de truy xuat nhanh.
 function buildPublicProfileMap(users) {
   return new Map(
     (Array.isArray(users) ? users : []).map((user) => {
@@ -83,6 +86,7 @@ function buildPublicProfileMap(users) {
   );
 }
 
+// Chen thong tin profile cong khai vao comment ma khong lo thong tin nhay cam.
 function hydrateCommentWithProfile(comment, profileMap) {
   const plainComment = serializeDoc(comment);
   const profile =
@@ -97,6 +101,7 @@ function hydrateCommentWithProfile(comment, profileMap) {
   };
 }
 
+// Hydrate danh sach comment cung mot profileMap co san.
 function hydrateCommentsWithProfiles(comments, profileMap) {
   return (Array.isArray(comments) ? comments : []).map((comment) =>
     hydrateCommentWithProfile(comment, profileMap),

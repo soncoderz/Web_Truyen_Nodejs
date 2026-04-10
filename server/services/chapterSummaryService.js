@@ -28,6 +28,7 @@ const NON_NAME_TOKENS = new Set([
   "Manga",
 ]);
 
+// Prompt chinh yeu cau model chi tom tat mot chapter duy nhat.
 const GEMINI_SUMMARY_PROMPT = `
 Ban la bien tap vien noi dung cho mot nen tang doc truyen.
 
@@ -61,6 +62,7 @@ Khong chap nhan:
 - Mot doan chi doi lai van xuoi cua chapter ma khong rut ra y chinh.
 `;
 
+// Prompt sua lai duoc dung khi ban nhap dau tien con dai, loang hoac sai trong tam.
 const GEMINI_SUMMARY_REWRITE_PROMPT = `
 Ban dang sua lai mot ban tom tat chapter chua dat yeu cau.
 
@@ -128,6 +130,7 @@ function getSummaryOutputLimit() {
   return Math.min(configuredLimit, 220);
 }
 
+// Thu sinh summary bang AI, neu output kem thi rewrite lai, sau cung moi fallback.
 async function generateSummary(story, chapter) {
   const generatedSummary = await tryGenerateAiSummary(story, chapter);
   if (
@@ -150,6 +153,7 @@ async function generateSummary(story, chapter) {
   return buildFallbackSummary(story, chapter);
 }
 
+// Neu chapter da co summary hop le thi dung lai, tranh goi AI khong can thiet.
 async function buildDisplaySummary(story, chapter) {
   const storedSummary = normalizeSummary(chapter?.summary);
   if (storedSummary && !looksLikePoorSummary(story, chapter, storedSummary)) {
@@ -170,6 +174,7 @@ async function tryRewriteAiSummary(story, chapter, draftSummary) {
   );
 }
 
+// Ham giao tiep voi Gemini va chuan hoa output text tra ve.
 async function requestAiSummary(systemPrompt, userParts) {
   const config = getAiConfig();
   if (!config.enabled || !config.apiKey) {
@@ -229,6 +234,7 @@ async function requestAiSummary(systemPrompt, userParts) {
   }
 }
 
+// Rewrite co the gui kem anh manga mau de giu dung nhan vat va dien bien chinh.
 async function buildRewriteParts(story, chapter, draftSummary) {
   const parts = [];
 
@@ -246,6 +252,7 @@ async function buildRewriteParts(story, chapter, draftSummary) {
   return parts;
 }
 
+// User parts gom context text; voi manga se co them mot tap anh duoc lay mau.
 async function buildUserParts(story, chapter) {
   const parts = [];
 
@@ -258,6 +265,7 @@ async function buildUserParts(story, chapter) {
   return parts;
 }
 
+// Doi mot nhom URL anh thanh inline_data de nhung truc tiep vao request Gemini.
 async function buildSampleImageParts(imageUrls) {
   const sampledImageUrls = sampleImageUrls(imageUrls);
   const imageParts = await Promise.all(sampledImageUrls.map((imageUrl) => buildInlineImagePart(imageUrl)));
@@ -272,6 +280,7 @@ async function buildSampleImageParts(imageUrls) {
     }));
 }
 
+// Tai anh tu xa va doi sang base64; neu loi, rong hoac qua lon thi bo qua.
 async function buildInlineImagePart(imageUrl) {
   if (!imageUrl) {
     return null;
@@ -320,6 +329,7 @@ async function buildInlineImagePart(imageUrl) {
   }
 }
 
+// Context prompt gom thong tin toi thieu de model hieu chapter nhung khong sa vao story-level summary.
 function buildContextPrompt(story, chapter) {
   const builder = [];
   const chapterContextTitle = pickUsefulChapterTitle(story, chapter);
@@ -506,6 +516,7 @@ function sampleImageUrls(imageUrls) {
     return normalizedUrls;
   }
 
+  // Lay mau trai deu tu dau den cuoi chapter de tang co hoi bat trung dien bien chinh.
   const sampled = new Set();
   const lastIndex = normalizedUrls.length - 1;
   for (let index = 0; index < maxImageSamples; index += 1) {
@@ -612,6 +623,7 @@ function buildNovelChapterExcerpt(content) {
   );
 }
 
+// Rut ra mot vai ten rieng quan trong de khuyen khich model giu nguyen trong summary.
 function extractCandidateProperNames(story, chapter) {
   const scores = new Map();
   collectProperNames(pickUsefulChapterTitle(story, chapter), scores, 3);
@@ -700,6 +712,7 @@ function sanitizeNarrativeParagraph(paragraph) {
   return sanitized;
 }
 
+// Chuan hoa summary da tao/da luu ve mot dang gon, sach va toi da 2 cau.
 function normalizeSummary(rawSummary) {
   if (rawSummary === null || rawSummary === undefined) {
     return null;
