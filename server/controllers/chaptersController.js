@@ -320,11 +320,11 @@ const createChapter = asyncHandler(async (req, res) => {
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "Lỗi: BáÂºÂ¡n khÄ‚Â´ng có quyáÂ»Ân thêm chương cho truyện nÄ‚Â y.");
+    throw httpError(403, "Lỗi: Bạn không có quyền thêm chương cho truyện này.");
   }
 
   if (existingChapter) {
-    throw httpError(400, "Lỗi: SáÂ»â€˜ chương Ã„â€˜Ä‚Â£ tồn tại trong truyện nÄ‚Â y.");
+    throw httpError(400, "Lỗi: Số chương đã tồn tại trong truyện này.");
   }
 
   const admin = isAdmin(req.user);
@@ -385,7 +385,7 @@ const createChapter = asyncHandler(async (req, res) => {
     chapterNumber: Number(req.body.chapterNumber),
   });
   if (existingChapter && String(existingChapter._id) !== String(chapter._id)) {
-    throw httpError(400, "Lỗi: SáÂ»â€˜ chương Ã„â€˜Ä‚Â£ tồn tại trong truyện nÄ‚Â y.");
+    throw httpError(400, "Lỗi: Số chương đã tồn tại trong truyện này.");
   }
 
   const previousStatus = chapter.approvalStatus;
@@ -422,12 +422,12 @@ const createChapter = asyncHandler(async (req, res) => {
 const regenerateChapterSummary = asyncHandler(async (req, res) => {
   const chapter = await Chapter.findById(req.params.id);
   if (!chapter) {
-    throw httpError(400, "LÃƒÂ¡Ã‚Â»ââ‚¬â€i: KhÃ„â€šÃ‚Â´ng tÃ„â€šÃ‚Â¬m thÃƒÂ¡Ã‚ÂºÃ‚Â¥y chÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng!");
+    throw httpError(400, "Lỗi: Không tìm thấy chương!");
   }
 
   const story = await Story.findById(chapter.storyId).lean();
   if (!story) {
-    throw httpError(400, "LÃƒÂ¡Ã‚Â»ââ‚¬â€i: KhÃ„â€šÃ‚Â´ng tÃ„â€šÃ‚Â¬m thÃƒÂ¡Ã‚ÂºÃ‚Â¥y truyÃƒÂ¡Ã‚Â»ââ‚¬Â¡n!");
+    throw httpError(400, "Lỗi: Không tìm thấy truyện!");
   }
 
   chapter.summary = await generateSummary(serializeDoc(story), chapter);
@@ -483,11 +483,11 @@ const regenerateChapterSummary = asyncHandler(async (req, res) => {
   }
 
   if (!canManageStory(serializeDoc(story), req.user)) {
-    throw httpError(403, "Lỗi: BáÂºÂ¡n khÄ‚Â´ng có quyáÂ»Ân xóa chương nÄ‚Â y.");
+    throw httpError(403, "Lỗi: Bạn không có quyền xóa chương này.");
   }
 
   await chapter.deleteOne();
-  res.json(buildMessage("Ã„ÂÄ‚Â£ xóa chương thành công!"));
+  res.json(buildMessage("Đã xóa chương thành công!"));
 });
 
 module.exports = {

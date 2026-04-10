@@ -814,14 +814,14 @@ const createMomoTopUp = asyncHandler(async (req, res) => {
   if (amount < 1000) {
     return res
       .status(400)
-      .json(buildMessage("Lỗi: Sờ‘ tiờn náº¡p tối thiểu lÃ  1.000 VND."));
+      .json(buildMessage("Lỗi: Số tiền nạp tối thiểu là 1.000 VND."));
   }
 
   const orderId = buildCompactId("topup");
   const requestId = buildCompactId("req");
   const redirectUrl = buildFrontendUrl(req.body.returnPath);
   const ipnUrl = `${normalizeBaseUrl(env.backendUrl)}/api/payments/momo/ipn`;
-  const orderInfo = "Nap vi Web Tuyen Online";
+  const orderInfo = "nạp ví Web Truyện Online";
   const extraData = encodeExtraData({
     userId: user.id,
     type: TYPE_TOP_UP,
